@@ -1,7 +1,14 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function POST(request: Request) {
-  const payload = (await request.json()) as { email?: string; senha?: string };
+  let payload: { email?: string; senha?: string };
+
+  try {
+    payload = (await request.json()) as { email?: string; senha?: string };
+  } catch {
+    return Response.json({ error: "Informe e-mail e senha." }, { status: 400 });
+  }
+
   const email = payload.email?.trim() ?? "";
   const senha = payload.senha ?? "";
 
