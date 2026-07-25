@@ -2,7 +2,7 @@ export type StatusEmpresa = "Ativa" | "Suspensa" | "Baixada";
 export type Porte = "MEI" | "Microempresa" | "Pequena empresa" | "Médio porte";
 
 export type Empresa = {
-  id: number;
+  id: string;
   cnpj: string;
   razaoSocial: string;
   fantasia: string;
@@ -13,11 +13,14 @@ export type Empresa = {
   cnaeCodigo: string;
   porte: Porte;
   status: StatusEmpresa;
-  abertura: number;
+  abertura: string | null;
+  responsavelId?: string | null;
   responsavel: string;
   socios: string[];
   tags: string[];
   observacoes?: string;
+  criadoEm?: string;
+  atualizadoEm?: string;
 };
 
 export type Divergencia = {
@@ -53,6 +56,11 @@ const nomes = [
 const sufixos = ["Distribuidora Ltda.", "Soluções Ltda.", "Logística Ltda.", "Clínica Integrada Ltda.", "Engenharia Ltda.", "Bistrô Ltda."];
 const responsaveis = ["Mariana Costa", "Lucas Ferreira", "Ana Ribeiro", "Rafael Alves", "Beatriz Lima"];
 
+// Mock ainda usado como base para os dados de `divergencias`/`tarefas`
+// abaixo (Auditoria/Calendário — escopo de planos futuros, não tocados por
+// esta task). `id`/`abertura` são strings aqui só para bater com o shape
+// real de `Empresa` (ver decisão de shape no plano de Onboarding); nenhum
+// consumidor atual desses mocks lê `id`/`abertura` diretamente.
 export const empresas: Empresa[] = Array.from({ length: 38 }, (_, index) => {
   const i = index + 1;
   const nome = nomes[index % nomes.length];
@@ -60,7 +68,7 @@ export const empresas: Empresa[] = Array.from({ length: 38 }, (_, index) => {
   const porte: Porte[] = ["Microempresa", "Pequena empresa", "Médio porte", "MEI"];
   const status: StatusEmpresa[] = ["Ativa", "Ativa", "Ativa", "Ativa", "Suspensa", "Baixada"];
   return {
-    id: i,
+    id: String(i),
     cnpj: i === 17 ? "12.345.678/0001-0X" : ` ${String(10 + i).padStart(2, "0")}.482.${String(100 + i).padStart(3, "0")}/0001-${String((i * 7) % 99).padStart(2, "0")}`.trim(),
     razaoSocial: `${nome[0]} ${sufixos[index % sufixos.length]}`,
     fantasia: `${nome[0]} ${index % 3 === 0 ? "& Co." : ""}`.trim(),
@@ -71,7 +79,7 @@ export const empresas: Empresa[] = Array.from({ length: 38 }, (_, index) => {
     cnaeCodigo: nome[2],
     porte: porte[index % porte.length],
     status: status[index % status.length],
-    abertura: 2004 + ((index * 3) % 21),
+    abertura: `${2004 + ((index * 3) % 21)}-01-15`,
     responsavel: responsaveis[index % responsaveis.length],
     socios: [`${["João", "Carla", "Pedro", "Fernanda"][index % 4]} ${["Silva", "Oliveira", "Santos", "Mendes"][index % 4]}`, "Sócio administrador"],
     tags: index % 2 ? ["Mensal", "Simples Nacional"] : ["Prioridade", "Lucro Presumido"],
@@ -102,19 +110,157 @@ export const tarefas: Tarefa[] = [
 
 const pause = <T,>(data: T) => new Promise<T>((resolve) => setTimeout(() => resolve(data), 350));
 
-/** Ponto de integração: trocar pelo GET /empresas da API do grupo. */
-export const listarEmpresas = () => pause(empresas);
-/** Ponto de integração: BrasilAPI /api/cnpj/v1/{cnpj}, com normalização no backend. */
-export const consultarCNPJ = async (cnpj: string) => {
-  await pause(null);
-  const digits = cnpj.replace(/\D/g, "");
-  if (digits.length !== 14) throw new Error("CNPJ inválido");
-  if (digits === "00000000000000") throw new Error("CNPJ não encontrado");
-  return { ...empresas[1], cnpj: cnpj || "48.613.992/0001-76", razaoSocial: "Atlas Tecnologia e Serviços Ltda.", fantasia: "Atlas Tecnologia" };
-};
-/** Ponto de integração: trocar pelo GET /auditoria/divergencias. */
+type SocioPayload = { nome: string; papel: string };
+
+/** "Nome" + "Papel" (do BrasilAPI/lib/empresas.ts) → "Nome (Papel)" para exibição. */
+function formatarSocio(socio: SocioPayload): string {
+  return socio.papel && socio.papel.trim() !== "" ? `${socio.nome} (${socio.papel})` : socio.nome;
+}
+
+/** Inverso de `formatarSocio`, usado ao reenviar `Empresa.socios` (string[])
+ * para o backend, que espera `{ nome, papel }[]` no corpo de POST/PATCH. */
+function paraSocioPayload(socioFormatado: string): SocioPayload {
+  const match = socioFormatado.match(/^(.*) \(([^()]*)\)$/);
+  if (match) {
+    return { nome: match[1], papel: match[2] };
+  }
+  return { nome: socioFormatado, papel: "" };
+}
+
+async function extrairMensagemDeErro(response: Response, fallback: string): Promise<string> {
+  try {
+    const body = (await response.json()) as { error?: string };
+    return body?.error ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/** GET /api/empresas — lista as empresas do escritório da sessão autenticada. */
+export async function listarEmpresas(): Promise<Empresa[]> {
+  const response = await fetch("/api/empresas");
+  if (!response.ok) {
+    throw new Error(await extrairMensagemDeErro(response, "Não foi possível carregar as empresas."));
+  }
+  return response.json();
+}
+
+/** POST /api/empresas/consultar-cnpj — consulta (sem persistir) via BrasilAPI. */
+export async function consultarCNPJ(cnpj: string): Promise<Empresa> {
+  const response = await fetch("/api/empresas/consultar-cnpj", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cnpj }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await extrairMensagemDeErro(response, "Não foi possível consultar o CNPJ."));
+  }
+
+  const body = await response.json();
+
+  // O endpoint devolve o shape "cru" da BrasilAPI (cnaeDescricao,
+  // situacaoCadastral, socios como { nome, papel }[]) — aqui traduzimos para
+  // o shape de `Empresa` usado pelo restante da tela (cnae, status, socios
+  // como string[]). `id` ainda não existe (empresa não persistida).
+  return {
+    id: "",
+    cnpj: body.cnpj,
+    razaoSocial: body.razaoSocial,
+    fantasia: body.fantasia,
+    cidade: body.cidade,
+    estado: body.estado,
+    endereco: body.endereco,
+    cnaeCodigo: body.cnaeCodigo,
+    cnae: body.cnaeDescricao,
+    porte: body.porte,
+    status: body.situacaoCadastral,
+    abertura: body.abertura,
+    responsavelId: null,
+    responsavel: "",
+    socios: ((body.socios ?? []) as SocioPayload[]).map(formatarSocio),
+    tags: [],
+    observacoes: "",
+  };
+}
+
+/** POST /api/empresas — persiste a empresa consultada/editada na carteira. */
+export async function salvarEmpresa(empresa: Empresa): Promise<Empresa> {
+  const payload = {
+    cnpj: empresa.cnpj,
+    razaoSocial: empresa.razaoSocial,
+    fantasia: empresa.fantasia,
+    cidade: empresa.cidade,
+    estado: empresa.estado,
+    endereco: empresa.endereco,
+    cnaeCodigo: empresa.cnaeCodigo,
+    cnaeDescricao: empresa.cnae,
+    porte: empresa.porte,
+    situacaoCadastral: empresa.status,
+    abertura: empresa.abertura,
+    socios: empresa.socios.map(paraSocioPayload),
+    responsavelId: empresa.responsavelId ?? null,
+    observacoes: empresa.observacoes ?? "",
+    tags: empresa.tags ?? [],
+  };
+
+  const response = await fetch("/api/empresas", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(await extrairMensagemDeErro(response, "Não foi possível salvar a empresa."));
+  }
+
+  return response.json();
+}
+
+export type EmpresaPatch = Partial<{
+  cnpj: string;
+  razaoSocial: string;
+  fantasia: string;
+  cidade: string;
+  estado: string;
+  endereco: string;
+  cnaeCodigo: string;
+  cnaeDescricao: string;
+  porte: string;
+  situacaoCadastral: string;
+  abertura: string | null;
+  responsavelId: string | null;
+  observacoes: string;
+  tags: string[];
+}>;
+
+/** PATCH /api/empresas/:id — atualização parcial (campos no shape do servidor). */
+export async function atualizarEmpresa(id: string, patch: EmpresaPatch): Promise<Empresa> {
+  const response = await fetch(`/api/empresas/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+
+  if (!response.ok) {
+    throw new Error(await extrairMensagemDeErro(response, "Não foi possível atualizar a empresa."));
+  }
+
+  return response.json();
+}
+
+/** GET /api/perfis — lista { id, nome } dos perfis do escritório, para o seletor de responsável. */
+export async function listarPerfis(): Promise<{ id: string; nome: string }[]> {
+  const response = await fetch("/api/perfis");
+  if (!response.ok) {
+    throw new Error(await extrairMensagemDeErro(response, "Não foi possível carregar os perfis."));
+  }
+  return response.json();
+}
+
+/** Ponto de integração: trocar pelo GET /auditoria/divergencias (plano futuro). */
 export const listarDivergencias = () => pause(divergencias);
-/** Ponto de integração: trocar pelo GET /tarefas e POST /tarefas. */
+/** Ponto de integração: trocar pelo GET /tarefas e POST /tarefas (plano futuro). */
 export const listarTarefas = () => pause(tarefas);
 /** Ponto de integração: BrasilAPI /api/feriados/v1/{ano}. */
 export const feriadosNacionais = ["2026-01-01", "2026-04-03", "2026-04-21", "2026-05-01", "2026-09-07", "2026-10-12", "2026-11-02", "2026-11-15", "2026-12-25"];

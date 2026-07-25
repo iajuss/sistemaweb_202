@@ -4,7 +4,7 @@ import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
   consultarCNPJ, divergencias as divergenciasMock, empresas as empresasMock, feriadosNacionais,
-  listarDivergencias, listarEmpresas, listarTarefas, tarefas as tarefasMock,
+  listarDivergencias, listarEmpresas, listarPerfis, listarTarefas, salvarEmpresa, tarefas as tarefasMock,
   type Divergencia, type Empresa, type Tarefa,
 } from "../src/services/portfolio";
 
@@ -34,17 +34,18 @@ export function HomeClient({ userName }: { userName: string }) {
   const [companies, setCompanies] = useState<Empresa[]>([]);
   const [issues, setIssues] = useState<Divergencia[]>([]);
   const [tasks, setTasks] = useState<Tarefa[]>([]);
+  const [perfis, setPerfis] = useState<{ id: string; nome: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([listarEmpresas(), listarDivergencias(), listarTarefas()]).then(([c, d, t]) => {
-      setCompanies(c); setIssues(d); setTasks(t); setLoading(false);
-    });
+    Promise.all([listarEmpresas(), listarDivergencias(), listarTarefas(), listarPerfis()])
+      .then(([c, d, t, p]) => { setCompanies(c); setIssues(d); setTasks(t); setPerfis(p); setLoading(false); })
+      .catch(() => setLoading(false));
   }, []);
 
   const content = loading ? <Loading /> : (
     view === "Visão geral" ? <Overview companies={companies} issues={issues} tasks={tasks} go={setView} /> :
-    view === "Onboarding" ? <Onboarding companies={companies} setCompanies={setCompanies} /> :
+    view === "Onboarding" ? <Onboarding companies={companies} setCompanies={setCompanies} perfis={perfis} userName={userName} /> :
     view === "Auditoria" ? <Audit issues={issues} setIssues={setIssues} /> :
     view === "Análise" ? <Analysis companies={companies} /> : <Calendar tasks={tasks} setTasks={setTasks} companies={companies} />
   );
@@ -79,16 +80,30 @@ function Overview({ companies, issues, tasks, go }: { companies: Empresa[]; issu
   </>;
 }
 
-function Onboarding({ companies, setCompanies }: { companies: Empresa[]; setCompanies: (value: Empresa[]) => void }) {
+function Onboarding({ companies, setCompanies, perfis, userName }: { companies: Empresa[]; setCompanies: (value: Empresa[]) => void; perfis: { id: string; nome: string }[]; userName: string }) {
   const [cnpj, setCnpj] = useState(""); const [result, setResult] = useState<Empresa | null>(null); const [state, setState] = useState<"idle" | "loading" | "error" | "success">("idle"); const [message, setMessage] = useState(""); const [query, setQuery] = useState("");
+  const [saving, setSaving] = useState(false); const [saveError, setSaveError] = useState("");
   const mask = (v: string) => v.replace(/\D/g, "").slice(0, 14).replace(/(\d{2})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1/$2").replace(/(\d{4})(\d{1,2})$/, "$1-$2");
   const lookup = async (e: FormEvent) => { e.preventDefault(); setState("loading"); try { const data = await consultarCNPJ(cnpj); setResult(data); setState("success"); } catch (error) { setMessage(error instanceof Error ? error.message : "Não foi possível consultar"); setState("error"); } };
-  const save = () => { if (!result) return; setCompanies([{ ...result, id: Math.max(...companies.map((c) => c.id)) + 1 }, ...companies]); setMessage("Empresa salva na carteira com sucesso."); };
+  const save = async () => {
+    if (!result) return;
+    setSaving(true); setSaveError("");
+    try {
+      await salvarEmpresa(result);
+      const atualizadas = await listarEmpresas();
+      setCompanies(atualizadas);
+      setMessage("Empresa salva na carteira com sucesso.");
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Não foi possível salvar a empresa");
+    } finally {
+      setSaving(false);
+    }
+  };
   const listed = companies.filter((c) => `${c.razaoSocial} ${c.cnpj}`.toLowerCase().includes(query.toLowerCase()));
   return <>
     <section className="section-head"><div><h2>Novo cadastro</h2><p>Consulte o CNPJ para começar com os dados preenchidos.</p></div></section>
-    <section className="panel onboarding"><form onSubmit={lookup}><label htmlFor="cnpj">CNPJ da empresa</label><div className="search-row"><input id="cnpj" value={cnpj} onChange={(e) => setCnpj(mask(e.target.value))} placeholder="00.000.000/0000-00" inputMode="numeric" /><button className="primary" disabled={state === "loading"}>{state === "loading" ? "Consultando…" : "Consultar"}</button></div><small>Consulta simulada. A integração com a BrasilAPI fica isolada no serviço.</small></form>{state === "error" && <div className="notice error"><strong>Não encontramos esse CNPJ</strong><p>{message}. Confira os números e tente novamente.</p></div>}</section>
-    {result && <section className="detail-card"><div className="detail-heading"><div><Badge tone="success">{result.status}</Badge><h2>{result.razaoSocial}</h2><p>{result.fantasia} · CNPJ {result.cnpj}</p></div><button className="primary" onClick={save}>Salvar na carteira</button></div><div className="details"><div><span>Endereço</span><strong>{result.endereco}, {result.cidade}/{result.estado}</strong></div><div><span>CNAE principal</span><strong>{result.cnaeCodigo} · {result.cnae}</strong></div><div><span>Porte</span><strong>{result.porte}</strong></div><div><span>Responsável interno</span><select defaultValue={result.responsavel}><option>Mariana Costa</option><option>Lucas Ferreira</option><option>Ana Ribeiro</option></select></div><div className="full"><span>Quadro societário</span><strong>{result.socios.join(" · ")}</strong></div><div className="full"><label htmlFor="obs">Observações internas</label><textarea id="obs" placeholder="Inclua orientações para o time responsável…" /></div></div></section>}
+    <section className="panel onboarding"><form onSubmit={lookup}><label htmlFor="cnpj">CNPJ da empresa</label><div className="search-row"><input id="cnpj" value={cnpj} onChange={(e) => setCnpj(mask(e.target.value))} placeholder="00.000.000/0000-00" inputMode="numeric" /><button className="primary" disabled={state === "loading"}>{state === "loading" ? "Consultando…" : "Consultar"}</button></div><small>Consulta via BrasilAPI.</small></form>{state === "error" && <div className="notice error"><strong>Não encontramos esse CNPJ</strong><p>{message}. Confira os números e tente novamente.</p></div>}</section>
+    {result && <section className="detail-card"><div className="detail-heading"><div><Badge tone="success">{result.status}</Badge><h2>{result.razaoSocial}</h2><p>{result.fantasia} · CNPJ {result.cnpj}</p></div><button className="primary" onClick={save} disabled={saving}>{saving ? "Salvando…" : "Salvar na carteira"}</button></div>{saveError && <div className="notice error"><strong>Não foi possível salvar a empresa</strong><p>{saveError}. Tente novamente.</p></div>}<div className="details"><div><span>Endereço</span><strong>{result.endereco}, {result.cidade}/{result.estado}</strong></div><div><span>CNAE principal</span><strong>{result.cnaeCodigo} · {result.cnae}</strong></div><div><span>Porte</span><strong>{result.porte}</strong></div><div><span>Responsável interno</span><select defaultValue={perfis.find((p) => p.nome === result.responsavel)?.id ?? ""}>{perfis.length > 0 ? perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>) : <option>{userName}</option>}</select></div><div className="full"><span>Quadro societário</span><strong>{result.socios.join(" · ")}</strong></div><div className="full"><label htmlFor="obs">Observações internas</label><textarea id="obs" placeholder="Inclua orientações para o time responsável…" /></div></div></section>}
     {message.includes("sucesso") && <div className="toast">✓ {message}</div>}
     <section className="section-head table-head"><div><h2>Cadastros na carteira</h2><p>{companies.length} empresas registradas</p></div><input aria-label="Buscar empresa" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por empresa ou CNPJ" /></section>
     <section className="panel table-wrap"><table><thead><tr><th>Empresa</th><th>CNPJ</th><th>Localidade</th><th>Situação</th><th>Responsável</th><th></th></tr></thead><tbody>{listed.slice(0, 8).map((c) => <tr key={c.id}><td><strong>{c.razaoSocial}</strong><small>{c.fantasia}</small></td><td>{c.cnpj}</td><td>{c.cidade}/{c.estado}</td><td><Badge tone={c.status === "Ativa" ? "success" : c.status === "Suspensa" ? "warning" : "danger"}>{c.status}</Badge></td><td>{c.responsavel}</td><td><button className="icon-button" aria-label={`Editar ${c.razaoSocial}`}>⋯</button></td></tr>)}</tbody></table>{listed.length === 0 && <Empty />}</section>
@@ -113,7 +128,8 @@ function Analysis({ companies }: { companies: Empresa[] }) {
   const filtered = companies.filter((c) => (state === "Todos" || c.estado === state) && (size === "Todos" || c.porte === size) && (situation === "Todos" || c.status === situation) && `${c.razaoSocial} ${c.cnae}`.toLowerCase().includes(search.toLowerCase()));
   const count = (key: keyof Empresa) => Object.entries(filtered.reduce((a, c) => ({ ...a, [String(c[key])]: (a[String(c[key])] || 0) + 1 }), {} as Record<string, number>)).map(([name, value]) => ({ name, value }));
   const stateData = count("estado").sort((a, b) => b.value - a.value).slice(0, 7); const sizeData = count("porte"); const cnaeData = count("cnae").sort((a, b) => b.value - a.value).slice(0, 5); const statusData = count("status");
-  const ages = [{ name: "até 3 anos", value: filtered.filter((c) => c.abertura >= 2023).length }, { name: "4 a 8 anos", value: filtered.filter((c) => c.abertura >= 2018 && c.abertura < 2023).length }, { name: "9 a 15 anos", value: filtered.filter((c) => c.abertura >= 2011 && c.abertura < 2018).length }, { name: "mais de 15", value: filtered.filter((c) => c.abertura < 2011).length }];
+  const anoAbertura = (c: Empresa) => (c.abertura ? new Date(c.abertura).getFullYear() : null);
+  const ages = [{ name: "até 3 anos", value: filtered.filter((c) => { const a = anoAbertura(c); return a !== null && a >= 2023; }).length }, { name: "4 a 8 anos", value: filtered.filter((c) => { const a = anoAbertura(c); return a !== null && a >= 2018 && a < 2023; }).length }, { name: "9 a 15 anos", value: filtered.filter((c) => { const a = anoAbertura(c); return a !== null && a >= 2011 && a < 2018; }).length }, { name: "mais de 15", value: filtered.filter((c) => { const a = anoAbertura(c); return a !== null && a < 2011; }).length }];
   return <>
     <section className="section-head"><div><h2>Composição da carteira</h2><p>Explore o perfil dos clientes cadastrados.</p></div><Badge tone="blue">{filtered.length} empresas</Badge></section>
     <section className="filters analysis-filters"><input aria-label="Buscar por empresa ou CNAE" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar empresa ou atividade" />{[[state, setState, ["Todos", ...Array.from(new Set(companies.map((c) => c.estado)))]], [size, setSize, ["Todos", ...Array.from(new Set(companies.map((c) => c.porte)))]], [situation, setSituation, ["Todos", "Ativa", "Suspensa", "Baixada"]]].map(([value, setter, options], i) => <select key={i} value={value as string} onChange={(e) => (setter as (v: string) => void)(e.target.value)}>{(options as string[]).map((o) => <option key={o}>{o}</option>)}</select>)}</section>
