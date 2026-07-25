@@ -3,6 +3,7 @@ import { garantirFeriadosDoAno } from "@/lib/feriados";
 import {
   TAREFA_SELECT,
   gerarTarefasDoMes,
+  hojeBrasil,
   intervaloDoMes,
   mesAtual,
   montarRespostaTarefa,
@@ -68,9 +69,8 @@ export async function GET(request: Request) {
 
   const ano = Number(mes.slice(0, 4));
   const feriados = await garantirFeriadosDoAno(supabase, ano);
-  const hoje = new Date().toISOString().slice(0, 10);
 
-  return Response.json(linhas.map((linha) => paraShapeFrontend(linha, feriados, hoje)));
+  return Response.json(linhas.map((linha) => paraShapeFrontend(linha, feriados, hojeBrasil())));
 }
 
 type TarefaPayload = {

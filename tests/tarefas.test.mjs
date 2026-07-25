@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calcularVencimentosDoModelo, ultimoDiaDoMes } from "../lib/tarefas.ts";
+import { calcularVencimentosDoModelo, hojeBrasil, mesAtual, ultimoDiaDoMes } from "../lib/tarefas.ts";
 
 // --- mensal ---------------------------------------------------------------
 
@@ -137,4 +137,26 @@ test("periodicidade desconhecida retorna lista vazia (defensivo)", () => {
     criadoEm: "2026-01-01T00:00:00Z",
   });
   assert.deepEqual(vencimentos, []);
+});
+
+// --- hojeBrasil / mesAtual --------------------------------------------------
+//
+// O valor exato depende do relógio real no momento em que o teste roda (não
+// há injeção de clock aqui), então não dá pra fixar um valor esperado sem
+// tornar o teste frágil/data-dependente. O que é testável sem depender do
+// relógio: o formato da saída ("YYYY-MM-DD" válido) e a consistência entre
+// `hojeBrasil()` e `mesAtual()` (o segundo deve ser sempre o prefixo do
+// primeiro). A correção do fuso horário em si (América/São_Paulo vs. UTC) é
+// verificada por leitura de código/comentário em `lib/tarefas.ts`, não por
+// este teste.
+
+test("hojeBrasil: retorna uma data no formato YYYY-MM-DD que o Date consegue parsear", () => {
+  const hoje = hojeBrasil();
+  assert.match(hoje, /^\d{4}-\d{2}-\d{2}$/);
+  assert.ok(!Number.isNaN(new Date(hoje).getTime()), `"${hoje}" deveria ser uma data válida`);
+});
+
+test("mesAtual: é sempre o prefixo YYYY-MM de hojeBrasil()", () => {
+  assert.equal(mesAtual(), hojeBrasil().slice(0, 7));
+  assert.match(mesAtual(), /^\d{4}-(0[1-9]|1[0-2])$/);
 });

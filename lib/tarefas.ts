@@ -80,9 +80,39 @@ export function intervaloDoMes(mes: string): { inicio: string; fim: string } {
   };
 }
 
-/** Mês atual no formato "YYYY-MM" (UTC), usado como padrão de `?mes=`. */
+/**
+ * `Intl.DateTimeFormat` fixado em "America/Sao_Paulo", reutilizado por
+ * `hojeBrasil`/`mesAtual` — formatar em `"en-CA"` dá direto o formato
+ * "YYYY-MM-DD" (ISO-like), sem precisar remontar a string a partir de
+ * `{ year, month, day }`.
+ */
+const FORMATADOR_DATA_BRASIL = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Sao_Paulo",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+/**
+ * Data de "hoje" no formato "YYYY-MM-DD", no fuso de São Paulo — não UTC.
+ *
+ * Por quê: o servidor roda em UTC (típico de Workers/edge), e
+ * `new Date().toISOString()` reflete o relógio UTC. São Paulo está
+ * atualmente UTC-3 (sem horário de verão desde 2019), então das 21h às
+ * 23h59 (horário de Brasília) o UTC já virou o dia seguinte — usar
+ * `toISOString()` faria tarefas "Pendente" vencendo hoje (no Brasil) virarem
+ * "Atrasada" até 3h mais cedo do que deveriam, e o mês padrão de `?mes=`
+ * viraria cedo demais nas últimas horas do último dia do mês. `Intl` com
+ * `timeZone: "America/Sao_Paulo"` corrige isso sem depender de nenhuma
+ * lib de datas externa.
+ */
+export function hojeBrasil(): string {
+  return FORMATADOR_DATA_BRASIL.format(new Date());
+}
+
+/** Mês atual no formato "YYYY-MM", no fuso de São Paulo (ver `hojeBrasil`), usado como padrão de `?mes=`. */
 export function mesAtual(): string {
-  return new Date().toISOString().slice(0, 7);
+  return hojeBrasil().slice(0, 7);
 }
 
 /**
@@ -146,9 +176,39 @@ export function calcularVencimentosDoModelo(params: {
 /**
  * Garante que as tarefas do mês pedido existam para todos os modelos ativos
  * do escritório: busca os modelos, calcula os vencimentos do mês
- * (`calcularVencimentosDoModelo`) e insere as tarefas que ainda não existem
- * (dedupe por `modelo_id` + `vencimento`, checado antes de cada insert —
- * evita duplicar em chamadas repetidas de `GET /api/tarefas`).
+ * (`calcularVencimentosDoModelo`) e insere as tarefas que ainda não existem.
+ *
+ * Dedupe por `modelo_id` + `vencimento` em duas camadas:
+ * 1. Um `select` de "fast path" antes de cada insert — evita bater no banco
+ *    com um insert desnecessário na maioria das chamadas (o caso comum é o
+ *    mês já ter sido gerado antes).
+ * 2. O insert em si é um `upsert` com `{ onConflict: "modelo_id,vencimento",
+ *    ignoreDuplicates: true }`, mesmo padrão de `garantirFeriadosDoAno` em
+ *    `lib/feriados.ts`: o `select` acima sozinho não é suficiente contra uma
+ *    corrida real (duas chamadas concorrentes de `GET /api/tarefas` — duas
+ *    abas abertas, um duplo clique) porque ambas podem passar pelo `select`
+ *    antes de qualquer uma inserir. O `upsert` com `ignoreDuplicates` faz a
+ *    segunda inserção da corrida virar um no-op silencioso em vez de criar
+ *    uma linha duplicada, **desde que exista o índice único parcial**
+ *    `tarefas_modelo_vencimento_unique` (`supabase/migrations/manual/
+ *    0006_tarefas_unique_modelo_vencimento.sql`, parcial em
+ *    `where modelo_id is not null` porque tarefas avulsas não têm essa
+ *    restrição).
+ *
+ *    **Importante, verificado ao vivo**: diferente do que se poderia supor,
+ *    um `upsert` com `onConflict` apontando para uma constraint que ainda
+ *    não existe **não** degrada silenciosamente para um insert comum — o
+ *    Postgres recusa com o erro `42P10` ("no unique or exclusion constraint
+ *    matching the ON CONFLICT specification"), porque `ON CONFLICT` precisa
+ *    que o índice já exista para ter contra o que casar. Isso foi
+ *    reproduzido ao vivo nesta task (a migração 0006 ainda não tinha sido
+ *    aplicada no banco de teste) e quebraria a geração de tarefas por
+ *    completo até a migração ser aplicada manualmente. Por isso, o catch
+ *    abaixo detecta especificamente `42P10` e cai para um `insert` comum
+ *    (mesmo comportamento de antes desta correção — protegido só pelo
+ *    `select` de fast path, sem proteção real contra corrida) só até a
+ *    migração 0006 ser aplicada; depois disso, o `upsert` com `onConflict`
+ *    passa a funcionar e a proteção fica completa.
  *
  * Erros são isolados por modelo/vencimento: uma falha ao gerar a tarefa de
  * um modelo (ou checar duplicidade) é logada e não impede a geração dos
@@ -191,7 +251,7 @@ export async function gerarTarefasDoMes(supabase: SupabaseClient, escritorioId: 
         continue;
       }
 
-      const { error: insertError } = await supabase.from("tarefas").insert({
+      const novaTarefa = {
         escritorio_id: escritorioId,
         modelo_id: modelo.id,
         empresa_id: modelo.empresa_id,
@@ -200,10 +260,23 @@ export async function gerarTarefasDoMes(supabase: SupabaseClient, escritorioId: 
         responsavel_id: modelo.responsavel_id,
         vencimento,
         status: "Pendente",
-      });
+      };
 
-      if (insertError) {
-        console.error(`Erro ao gerar tarefa do modelo ${modelo.id} para ${vencimento}:`, insertError);
+      const { error: upsertError } = await supabase
+        .from("tarefas")
+        .upsert(novaTarefa, { onConflict: "modelo_id,vencimento", ignoreDuplicates: true });
+
+      if (upsertError?.code === "42P10") {
+        // Migração 0006 (índice único parcial) ainda não foi aplicada no
+        // banco — ON CONFLICT não tem constraint pra casar. Cai para um
+        // insert comum (mesma proteção de antes desta correção, só o select
+        // de fast path acima) até a migração ser aplicada manualmente.
+        const { error: insertError } = await supabase.from("tarefas").insert(novaTarefa);
+        if (insertError) {
+          console.error(`Erro ao gerar tarefa do modelo ${modelo.id} para ${vencimento} (fallback sem upsert):`, insertError);
+        }
+      } else if (upsertError) {
+        console.error(`Erro ao gerar tarefa do modelo ${modelo.id} para ${vencimento}:`, upsertError);
       }
     }
   }
@@ -264,7 +337,6 @@ export async function montarRespostaTarefa(supabase: SupabaseClient, id: string)
 
   const ano = Number(tarefa.vencimento.slice(0, 4));
   const feriados = await garantirFeriadosDoAno(supabase, ano);
-  const hoje = new Date().toISOString().slice(0, 10);
 
-  return paraShapeFrontend(tarefa, feriados, hoje);
+  return paraShapeFrontend(tarefa, feriados, hojeBrasil());
 }
