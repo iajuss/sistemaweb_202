@@ -125,7 +125,11 @@ export async function POST(request: Request) {
     );
 
     if (sociosError) {
-      return applySetCookies(Response.json({ error: "Empresa criada, mas não foi possível salvar os sócios." }, { status: 500 }));
+      // Compensação: sem transação multi-tabela via PostgREST, desfazemos
+      // manualmente a empresa recém-criada para não deixar um registro
+      // órfão (empresa sem sócios que o cliente não sabe que existe).
+      await supabase.from("empresas").delete().eq("id", empresaId);
+      return applySetCookies(Response.json({ error: "Não foi possível salvar os sócios da empresa." }, { status: 500 }));
     }
   }
 
