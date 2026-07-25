@@ -61,6 +61,20 @@ Os dados de empresas, divergências, tarefas e feriados estão em `src/services/
 
 Troque somente as implementações mockadas desses serviços por chamadas ao backend do grupo. A interface consome os retornos através dessa camada, evitando refatoração das telas. Para persistir ações, acrescente serviços de criação/edição e substitua as atualizações de estado locais pelos respectivos `POST`, `PATCH` ou `DELETE`.
 
+## Backend / Supabase
+
+Para aplicar o schema em um projeto Supabase novo, execute, nesta ordem, via SQL Editor:
+
+1. `supabase/migrations/*.sql` — migrações geradas pelo drizzle-kit, em ordem numérica.
+2. `supabase/migrations/manual/*.sql` — SQL escrito à mão (políticas de RLS, triggers), em
+   ordem de nome de arquivo, sempre depois das migrações do passo 1. Veja
+   `supabase/migrations/manual/README.md` para detalhes.
+
+Também é necessário, no painel do Supabase, em **Authentication → Sign In / Providers → Email**,
+deixar **"Confirm email" DESMARCADO** — o fluxo de cadastro desta aplicação faz login
+imediatamente após o `signUp()`, e com a confirmação de e-mail habilitada o usuário fica
+criado porém não confirmado, e o login subsequente falha.
+
 ## Observações
 
 - O CNPJ, os cadastros e as tarefas desta versão são fictícios.
