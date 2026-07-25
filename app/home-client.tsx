@@ -15,6 +15,8 @@ const nav: { label: View; icon: string }[] = [
 ];
 const cores = ["#2d6478", "#5d89a5", "#92b0bf", "#c8d9db", "#d9af72"];
 const formatDate = (date: string) => new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" }).format(new Date(`${date}T12:00:00`));
+/** Evita "...obrigatórios.. Tente novamente." quando a mensagem do servidor já termina em ponto. */
+const semPontoFinal = (mensagem: string) => mensagem.replace(/\.+$/, "");
 
 function Badge({ children, tone = "neutral" }: { children: ReactNode; tone?: string }) {
   return <span className={`badge ${tone}`}>{children}</span>;
@@ -36,11 +38,12 @@ export function HomeClient({ userName }: { userName: string }) {
   const [tasks, setTasks] = useState<Tarefa[]>([]);
   const [perfis, setPerfis] = useState<{ id: string; nome: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     Promise.all([listarEmpresas(), listarDivergencias(), listarTarefas(), listarPerfis()])
       .then(([c, d, t, p]) => { setCompanies(c); setIssues(d); setTasks(t); setPerfis(p); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch(() => { setLoadError(true); setLoading(false); });
   }, []);
 
   const content = loading ? <Loading /> : (
@@ -59,7 +62,10 @@ export function HomeClient({ userName }: { userName: string }) {
     {menuOpen && <button className="backdrop" aria-label="Fechar menu" onClick={() => setMenuOpen(false)} />}
     <section className="workspace">
       <header className="topbar"><button className="menu-button" aria-label="Abrir menu" onClick={() => setMenuOpen(true)}>☰</button><div><p className="eyebrow">Gestão contábil</p><h1>{view}</h1></div><div className="logo-placeholder"><span>▣</span> Logo do cliente</div></header>
-      <div className="page-content">{content}</div>
+      <div className="page-content">
+        {loadError && <div className="notice error"><strong>Não foi possível carregar os dados</strong><p>Tente atualizar a página.</p></div>}
+        {content}
+      </div>
     </section>
   </main>;
 }
@@ -84,26 +90,45 @@ function Onboarding({ companies, setCompanies, perfis, userName }: { companies: 
   const [cnpj, setCnpj] = useState(""); const [result, setResult] = useState<Empresa | null>(null); const [state, setState] = useState<"idle" | "loading" | "error" | "success">("idle"); const [message, setMessage] = useState(""); const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false); const [saveError, setSaveError] = useState("");
   const mask = (v: string) => v.replace(/\D/g, "").slice(0, 14).replace(/(\d{2})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1/$2").replace(/(\d{4})(\d{1,2})$/, "$1-$2");
-  const lookup = async (e: FormEvent) => { e.preventDefault(); setState("loading"); try { const data = await consultarCNPJ(cnpj); setResult(data); setState("success"); } catch (error) { setMessage(error instanceof Error ? error.message : "Não foi possível consultar"); setState("error"); } };
+  const lookup = async (e: FormEvent) => {
+    e.preventDefault(); setState("loading");
+    try {
+      const data = await consultarCNPJ(cnpj); setResult(data); setState("success");
+    } catch (error) {
+      const bruta = error instanceof Error ? error.message : "Não foi possível consultar";
+      setMessage(`${semPontoFinal(bruta)}. Confira os números e tente novamente.`);
+      setState("error");
+    }
+  };
   const save = async () => {
     if (!result) return;
     setSaving(true); setSaveError("");
     try {
       await salvarEmpresa(result);
+    } catch (error) {
+      // Nada foi persistido — a mensagem "não foi possível salvar" é exata aqui.
+      const bruta = error instanceof Error ? error.message : "Não foi possível salvar a empresa";
+      setSaveError(`${semPontoFinal(bruta)}. Tente novamente.`);
+      setSaving(false);
+      return;
+    }
+    try {
       const atualizadas = await listarEmpresas();
       setCompanies(atualizadas);
       setMessage("Empresa salva na carteira com sucesso.");
-    } catch (error) {
-      setSaveError(error instanceof Error ? error.message : "Não foi possível salvar a empresa");
-    } finally {
-      setSaving(false);
+    } catch {
+      // A empresa JÁ foi persistida no passo anterior — só a atualização da
+      // lista falhou. Não reusar a mensagem de "não foi possível salvar"
+      // aqui, ou o usuário pode clicar salvar de novo e duplicar o registro.
+      setSaveError("Empresa salva, mas não foi possível atualizar a lista. Atualize a página.");
     }
+    setSaving(false);
   };
   const listed = companies.filter((c) => `${c.razaoSocial} ${c.cnpj}`.toLowerCase().includes(query.toLowerCase()));
   return <>
     <section className="section-head"><div><h2>Novo cadastro</h2><p>Consulte o CNPJ para começar com os dados preenchidos.</p></div></section>
-    <section className="panel onboarding"><form onSubmit={lookup}><label htmlFor="cnpj">CNPJ da empresa</label><div className="search-row"><input id="cnpj" value={cnpj} onChange={(e) => setCnpj(mask(e.target.value))} placeholder="00.000.000/0000-00" inputMode="numeric" /><button className="primary" disabled={state === "loading"}>{state === "loading" ? "Consultando…" : "Consultar"}</button></div><small>Consulta via BrasilAPI.</small></form>{state === "error" && <div className="notice error"><strong>Não encontramos esse CNPJ</strong><p>{message}. Confira os números e tente novamente.</p></div>}</section>
-    {result && <section className="detail-card"><div className="detail-heading"><div><Badge tone="success">{result.status}</Badge><h2>{result.razaoSocial}</h2><p>{result.fantasia} · CNPJ {result.cnpj}</p></div><button className="primary" onClick={save} disabled={saving}>{saving ? "Salvando…" : "Salvar na carteira"}</button></div>{saveError && <div className="notice error"><strong>Não foi possível salvar a empresa</strong><p>{saveError}. Tente novamente.</p></div>}<div className="details"><div><span>Endereço</span><strong>{result.endereco}, {result.cidade}/{result.estado}</strong></div><div><span>CNAE principal</span><strong>{result.cnaeCodigo} · {result.cnae}</strong></div><div><span>Porte</span><strong>{result.porte}</strong></div><div><span>Responsável interno</span><select defaultValue={perfis.find((p) => p.nome === result.responsavel)?.id ?? ""}>{perfis.length > 0 ? perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>) : <option>{userName}</option>}</select></div><div className="full"><span>Quadro societário</span><strong>{result.socios.join(" · ")}</strong></div><div className="full"><label htmlFor="obs">Observações internas</label><textarea id="obs" placeholder="Inclua orientações para o time responsável…" /></div></div></section>}
+    <section className="panel onboarding"><form onSubmit={lookup}><label htmlFor="cnpj">CNPJ da empresa</label><div className="search-row"><input id="cnpj" value={cnpj} onChange={(e) => setCnpj(mask(e.target.value))} placeholder="00.000.000/0000-00" inputMode="numeric" /><button className="primary" disabled={state === "loading"}>{state === "loading" ? "Consultando…" : "Consultar"}</button></div><small>Consulta via BrasilAPI.</small></form>{state === "error" && <div className="notice error"><strong>Não encontramos esse CNPJ</strong><p>{message}</p></div>}</section>
+    {result && <section className="detail-card"><div className="detail-heading"><div><Badge tone="success">{result.status}</Badge><h2>{result.razaoSocial}</h2><p>{result.fantasia} · CNPJ {result.cnpj}</p></div><button className="primary" onClick={save} disabled={saving}>{saving ? "Salvando…" : "Salvar na carteira"}</button></div>{saveError && <div className="notice error"><p>{saveError}</p></div>}<div className="details"><div><span>Endereço</span><strong>{result.endereco}, {result.cidade}/{result.estado}</strong></div><div><span>CNAE principal</span><strong>{result.cnaeCodigo} · {result.cnae}</strong></div><div><span>Porte</span><strong>{result.porte}</strong></div><div><span>Responsável interno</span><select defaultValue={perfis.find((p) => p.nome === result.responsavel)?.id ?? ""}>{perfis.length > 0 ? perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>) : <option value={userName}>{userName}</option>}</select></div><div className="full"><span>Quadro societário</span><strong>{result.socios.join(" · ")}</strong></div><div className="full"><label htmlFor="obs">Observações internas</label><textarea id="obs" placeholder="Inclua orientações para o time responsável…" /></div></div></section>}
     {message.includes("sucesso") && <div className="toast">✓ {message}</div>}
     <section className="section-head table-head"><div><h2>Cadastros na carteira</h2><p>{companies.length} empresas registradas</p></div><input aria-label="Buscar empresa" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por empresa ou CNPJ" /></section>
     <section className="panel table-wrap"><table><thead><tr><th>Empresa</th><th>CNPJ</th><th>Localidade</th><th>Situação</th><th>Responsável</th><th></th></tr></thead><tbody>{listed.slice(0, 8).map((c) => <tr key={c.id}><td><strong>{c.razaoSocial}</strong><small>{c.fantasia}</small></td><td>{c.cnpj}</td><td>{c.cidade}/{c.estado}</td><td><Badge tone={c.status === "Ativa" ? "success" : c.status === "Suspensa" ? "warning" : "danger"}>{c.status}</Badge></td><td>{c.responsavel}</td><td><button className="icon-button" aria-label={`Editar ${c.razaoSocial}`}>⋯</button></td></tr>)}</tbody></table>{listed.length === 0 && <Empty />}</section>
