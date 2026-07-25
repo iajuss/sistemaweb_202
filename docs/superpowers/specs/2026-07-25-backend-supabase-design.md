@@ -69,7 +69,9 @@ para `select`/`insert`/`update`/`delete`.
 - `GET /api/empresas`, `PATCH /api/empresas/:id`: listagem e edição.
 
 **2. Auditoria**
-- `POST /api/auditoria/executar`: roda o motor de regras (CNPJ inválido, duplicidade via `pg_trgm` para razão social similar, situação cadastral irregular, endereço/dados ausentes) sobre as empresas do escritório e grava em `divergencias`. Disparado automaticamente após salvar/editar uma empresa, e manualmente via botão "revalidar carteira".
+- `POST /api/auditoria/executar`: roda o motor de regras sobre as empresas do escritório e grava em `divergencias`. Disparado automaticamente após salvar/editar uma empresa, e manualmente via botão "revalidar carteira". Regras:
+  - **Internas** (sem chamada externa, sempre rodam): CNPJ inválido (dígito verificador), duplicidade via `pg_trgm` para razão social similar entre registros do próprio escritório, situação cadastral irregular, dados obrigatórios ausentes.
+  - **Contra a fonte oficial** (reconsulta a BrasilAPI por CNPJ e compara com o dado salvo — mesma rota `consultar-cnpj` do Onboarding, reaproveitada aqui): razão social divergente da atual na Receita Federal, endereço desatualizado. Como dependem de chamada externa por empresa, rodam sob rate limit/backoff (reaproveita o tratamento de erro do Onboarding) e não são disparadas a cada edição — só no "revalidar carteira" manual ou numa rotina periódica, para não estourar limite da BrasilAPI.
 - `GET /api/auditoria/divergencias`, `PATCH /api/auditoria/divergencias/:id` (marcar revisado/ignorado ou aplicar sugestão, atualizando a empresa).
 
 **3. Análise da carteira**
@@ -79,7 +81,8 @@ para `select`/`insert`/`update`/`delete`.
 **4. Calendário**
 - `GET /api/tarefas?mes=&responsavel=`, `POST`/`PATCH /api/tarefas` para tarefas avulsas.
 - `POST`/`GET`/`PATCH /api/modelos-recorrencia` para o CRUD dos moldes de recorrência.
-- Rotina de geração: ao abrir o calendário (ou via job), garante que as tarefas do mês corrente existam para cada modelo ativo, populando `feriados_cache` sob demanda a partir da BrasilAPI e empurrando o vencimento para o próximo dia útil quando cair em feriado.
+- Rotina de geração: ao abrir o calendário (ou via job), garante que as tarefas do mês corrente existam para cada modelo ativo, populando `feriados_cache` sob demanda a partir da BrasilAPI. O vencimento gerado **não é deslocado automaticamente** — a tarefa mantém a data original do modelo (ex.: sempre dia 5).
+- Alerta de feriado: `GET /api/tarefas` cruza `vencimento` com `feriados_cache.data` e retorna um campo calculado em runtime (ex.: `coincideComFeriado: { nome, data }`) para cada tarefa afetada — mesmo padrão de "atrasada" (calculado na leitura, nunca persistido). O frontend usa esse campo para sinalizar visualmente o conflito; o usuário decide se reagenda manualmente via `PATCH /api/tarefas/:id`.
 
 ## Tratamento de erros
 
