@@ -3,8 +3,8 @@
 import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
-  consultarCNPJ, divergencias as divergenciasMock, empresas as empresasMock, feriadosNacionais,
-  listarDivergencias, listarEmpresas, listarPerfis, listarTarefas, salvarEmpresa, tarefas as tarefasMock,
+  consultarCNPJ, divergencias as divergenciasMock, feriadosNacionais,
+  listarDivergencias, listarEmpresas, listarPerfis, listarTarefas, salvarEmpresa,
   type Divergencia, type Empresa, type Tarefa,
 } from "../src/services/portfolio";
 
@@ -89,11 +89,13 @@ function Overview({ companies, issues, tasks, go }: { companies: Empresa[]; issu
 function Onboarding({ companies, setCompanies, perfis, userName }: { companies: Empresa[]; setCompanies: (value: Empresa[]) => void; perfis: { id: string; nome: string }[]; userName: string }) {
   const [cnpj, setCnpj] = useState(""); const [result, setResult] = useState<Empresa | null>(null); const [state, setState] = useState<"idle" | "loading" | "error" | "success">("idle"); const [message, setMessage] = useState(""); const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false); const [saveError, setSaveError] = useState("");
+  const [responsavelId, setResponsavelId] = useState(""); const [observacoes, setObservacoes] = useState("");
   const mask = (v: string) => v.replace(/\D/g, "").slice(0, 14).replace(/(\d{2})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1/$2").replace(/(\d{4})(\d{1,2})$/, "$1-$2");
   const lookup = async (e: FormEvent) => {
     e.preventDefault(); setState("loading");
     try {
       const data = await consultarCNPJ(cnpj); setResult(data); setState("success");
+      setResponsavelId(""); setObservacoes("");
     } catch (error) {
       const bruta = error instanceof Error ? error.message : "Não foi possível consultar";
       setMessage(`${semPontoFinal(bruta)}. Confira os números e tente novamente.`);
@@ -104,7 +106,7 @@ function Onboarding({ companies, setCompanies, perfis, userName }: { companies: 
     if (!result) return;
     setSaving(true); setSaveError("");
     try {
-      await salvarEmpresa(result);
+      await salvarEmpresa({ ...result, responsavelId: responsavelId || null, observacoes });
     } catch (error) {
       // Nada foi persistido — a mensagem "não foi possível salvar" é exata aqui.
       const bruta = error instanceof Error ? error.message : "Não foi possível salvar a empresa";
@@ -128,7 +130,7 @@ function Onboarding({ companies, setCompanies, perfis, userName }: { companies: 
   return <>
     <section className="section-head"><div><h2>Novo cadastro</h2><p>Consulte o CNPJ para começar com os dados preenchidos.</p></div></section>
     <section className="panel onboarding"><form onSubmit={lookup}><label htmlFor="cnpj">CNPJ da empresa</label><div className="search-row"><input id="cnpj" value={cnpj} onChange={(e) => setCnpj(mask(e.target.value))} placeholder="00.000.000/0000-00" inputMode="numeric" /><button className="primary" disabled={state === "loading"}>{state === "loading" ? "Consultando…" : "Consultar"}</button></div><small>Consulta via BrasilAPI.</small></form>{state === "error" && <div className="notice error"><strong>Não encontramos esse CNPJ</strong><p>{message}</p></div>}</section>
-    {result && <section className="detail-card"><div className="detail-heading"><div><Badge tone="success">{result.status}</Badge><h2>{result.razaoSocial}</h2><p>{result.fantasia} · CNPJ {result.cnpj}</p></div><button className="primary" onClick={save} disabled={saving}>{saving ? "Salvando…" : "Salvar na carteira"}</button></div>{saveError && <div className="notice error"><p>{saveError}</p></div>}<div className="details"><div><span>Endereço</span><strong>{result.endereco}, {result.cidade}/{result.estado}</strong></div><div><span>CNAE principal</span><strong>{result.cnaeCodigo} · {result.cnae}</strong></div><div><span>Porte</span><strong>{result.porte}</strong></div><div><span>Responsável interno</span><select defaultValue={perfis.find((p) => p.nome === result.responsavel)?.id ?? ""}>{perfis.length > 0 ? perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>) : <option value={userName}>{userName}</option>}</select></div><div className="full"><span>Quadro societário</span><strong>{result.socios.join(" · ")}</strong></div><div className="full"><label htmlFor="obs">Observações internas</label><textarea id="obs" placeholder="Inclua orientações para o time responsável…" /></div></div></section>}
+    {result && <section className="detail-card"><div className="detail-heading"><div><Badge tone="success">{result.status}</Badge><h2>{result.razaoSocial}</h2><p>{result.fantasia} · CNPJ {result.cnpj}</p></div><button className="primary" onClick={save} disabled={saving}>{saving ? "Salvando…" : "Salvar na carteira"}</button></div>{saveError && <div className="notice error"><p>{saveError}</p></div>}<div className="details"><div><span>Endereço</span><strong>{result.endereco}, {result.cidade}/{result.estado}</strong></div><div><span>CNAE principal</span><strong>{result.cnaeCodigo} · {result.cnae}</strong></div><div><span>Porte</span><strong>{result.porte}</strong></div><div><span>Responsável interno</span><select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)}>{perfis.length > 0 ? <><option value="">Selecione…</option>{perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</> : <option value="">{userName}</option>}</select></div><div className="full"><span>Quadro societário</span><strong>{result.socios.join(" · ")}</strong></div><div className="full"><label htmlFor="obs">Observações internas</label><textarea id="obs" value={observacoes} onChange={(e) => setObservacoes(e.target.value)} placeholder="Inclua orientações para o time responsável…" /></div></div></section>}
     {message.includes("sucesso") && <div className="toast">✓ {message}</div>}
     <section className="section-head table-head"><div><h2>Cadastros na carteira</h2><p>{companies.length} empresas registradas</p></div><input aria-label="Buscar empresa" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por empresa ou CNPJ" /></section>
     <section className="panel table-wrap"><table><thead><tr><th>Empresa</th><th>CNPJ</th><th>Localidade</th><th>Situação</th><th>Responsável</th><th></th></tr></thead><tbody>{listed.slice(0, 8).map((c) => <tr key={c.id}><td><strong>{c.razaoSocial}</strong><small>{c.fantasia}</small></td><td>{c.cnpj}</td><td>{c.cidade}/{c.estado}</td><td><Badge tone={c.status === "Ativa" ? "success" : c.status === "Suspensa" ? "warning" : "danger"}>{c.status}</Badge></td><td>{c.responsavel}</td><td><button className="icon-button" aria-label={`Editar ${c.razaoSocial}`}>⋯</button></td></tr>)}</tbody></table>{listed.length === 0 && <Empty />}</section>

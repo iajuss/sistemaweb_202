@@ -20,7 +20,7 @@ export async function GET(request: Request) {
   let query = supabase.from("empresas").select(EMPRESA_SELECT).order("razao_social", { ascending: true });
 
   if (busca) {
-    const termo = `%${busca.replace(/[%,]/g, "")}%`;
+    const termo = `%${busca.replace(/[%,()]/g, "")}%`;
     query = query.or(`razao_social.ilike.${termo},fantasia.ilike.${termo},cnpj.ilike.${termo}`);
   }
 
