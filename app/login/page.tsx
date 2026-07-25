@@ -1,10 +1,8 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [error, setError] = useState("");
@@ -28,8 +26,10 @@ export default function LoginPage() {
       return;
     }
 
-    router.push("/");
-    router.refresh();
+    // Navegação client-side (router.push + router.refresh) para "/" trava
+    // com a sessão já autenticada no servidor mas a UI presa em /login —
+    // um bug de transição RSC no vinext. Redirect "hard" contorna isso.
+    window.location.href = "/";
   };
 
   return (

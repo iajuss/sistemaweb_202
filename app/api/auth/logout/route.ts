@@ -1,7 +1,7 @@
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseRouteHandlerClient } from "@/lib/supabase/server";
 
 export async function POST() {
-  const supabase = await createSupabaseServerClient();
+  const { supabase, applySetCookies } = await createSupabaseRouteHandlerClient();
   await supabase.auth.signOut();
-  return Response.json({ ok: true });
+  return applySetCookies(Response.json({ ok: true }));
 }

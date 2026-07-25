@@ -1,4 +1,4 @@
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseRouteHandlerClient } from "@/lib/supabase/server";
 
 export async function POST(request: Request) {
   let payload: { email?: string; senha?: string };
@@ -16,12 +16,12 @@ export async function POST(request: Request) {
     return Response.json({ error: "Informe e-mail e senha." }, { status: 400 });
   }
 
-  const supabase = await createSupabaseServerClient();
+  const { supabase, applySetCookies } = await createSupabaseRouteHandlerClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password: senha });
 
   if (error) {
-    return Response.json({ error: "E-mail ou senha inválidos." }, { status: 401 });
+    return applySetCookies(Response.json({ error: "E-mail ou senha inválidos." }, { status: 401 }));
   }
 
-  return Response.json({ ok: true });
+  return applySetCookies(Response.json({ ok: true }));
 }

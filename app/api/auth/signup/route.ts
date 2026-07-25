@@ -1,4 +1,4 @@
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseRouteHandlerClient } from "@/lib/supabase/server";
 
 export async function POST(request: Request) {
   let payload: {
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const supabase = await createSupabaseServerClient();
+  const { supabase, applySetCookies } = await createSupabaseRouteHandlerClient();
   const { error } = await supabase.auth.signUp({
     email,
     password: senha,
@@ -42,11 +42,13 @@ export async function POST(request: Request) {
   });
 
   if (error) {
-    return Response.json(
-      { error: "Não foi possível criar a conta. Verifique os dados e tente novamente." },
-      { status: 400 },
+    return applySetCookies(
+      Response.json(
+        { error: "Não foi possível criar a conta. Verifique os dados e tente novamente." },
+        { status: 400 },
+      ),
     );
   }
 
-  return Response.json({ ok: true }, { status: 201 });
+  return applySetCookies(Response.json({ ok: true }, { status: 201 }));
 }
