@@ -274,7 +274,11 @@ export async function tratarDivergencia(
   return response.json();
 }
 
-export type ResumoAuditoria = { detectadas: number; resolvidas: number };
+/** `puladas`: divergências Pendentes preservadas por falta de avaliação nesta
+ * execução (falha isolada de BrasilAPI/RPC de duplicidade, ou execução
+ * interna-only) — opcional para não quebrar chamadores que ainda não leem
+ * este campo (ver `app/api/auditoria/executar/route.ts`). */
+export type ResumoAuditoria = { detectadas: number; resolvidas: number; puladas?: number };
 
 /** POST /api/auditoria/executar — roda o motor de regras (interno sempre, externo/BrasilAPI quando `incluirRegrasExternas`) e sincroniza `divergencias`. */
 export async function executarAuditoria(incluirRegrasExternas: boolean): Promise<ResumoAuditoria> {
