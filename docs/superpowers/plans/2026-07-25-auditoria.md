@@ -37,7 +37,7 @@ Para `(empresa_id, tipo)` que **não** foi detectado nesta execução mas tem um
 ## Task 1: Habilitar `pg_trgm` e função de detecção de duplicidade
 
 **Files:**
-- Create: `supabase/migrations/manual/0003_auditoria_pg_trgm.sql`
+- Create: `supabase/migrations/manual/0004_auditoria_pg_trgm.sql`
 
 **Interfaces:**
 - Produces: função `detectar_duplicidade_razao_social(p_escritorio_id uuid, p_limiar float)`, consumida pela Task 2.
@@ -77,7 +77,7 @@ $$;
 - [ ] **Step 2: Commit**
 
 ```bash
-git add supabase/migrations/manual/0003_auditoria_pg_trgm.sql
+git add supabase/migrations/manual/0004_auditoria_pg_trgm.sql
 git commit -m "feat: adiciona extensão pg_trgm e função de detecção de duplicidade"
 ```
 

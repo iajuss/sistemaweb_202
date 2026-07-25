@@ -29,7 +29,7 @@ Também: a visão mensal está fixa em "Agosto de 2026" (sem navegação de mês
 ## Task 1: Coluna `empresa_id` em `modelos_recorrencia` + CRUD
 
 **Files:**
-- Create: `supabase/migrations/manual/0004_modelos_recorrencia_empresa.sql`
+- Create: `supabase/migrations/manual/0005_modelos_recorrencia_empresa.sql`
 - Modify: `db/schema.ts` (adicionar `empresaId` a `modelosRecorrencia`, refletindo a migração)
 - Create: `app/api/modelos-recorrencia/route.ts` (GET, POST)
 - Create: `app/api/modelos-recorrencia/[id]/route.ts` (PATCH)
@@ -39,7 +39,7 @@ Também: a visão mensal está fixa em "Agosto de 2026" (sem navegação de mês
 
 - [ ] **Step 1: Escrever e commitar a migração**
 
-`supabase/migrations/manual/0004_modelos_recorrencia_empresa.sql`:
+`supabase/migrations/manual/0005_modelos_recorrencia_empresa.sql`:
 ```sql
 alter table public.modelos_recorrencia
   add column empresa_id uuid not null references public.empresas(id) on delete cascade;
@@ -68,7 +68,7 @@ Run: `npx tsc --noEmit`. Testar GET/POST/PATCH com `npm run dev` + sessão auten
 - [ ] **Step 6: Commit**
 
 ```bash
-git add supabase/migrations/manual/0004_modelos_recorrencia_empresa.sql db/schema.ts app/api/modelos-recorrencia
+git add supabase/migrations/manual/0005_modelos_recorrencia_empresa.sql db/schema.ts app/api/modelos-recorrencia
 git commit -m "feat: adiciona empresa_id a modelos_recorrencia e CRUD da rota"
 ```
 
