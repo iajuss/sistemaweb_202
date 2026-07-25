@@ -24,8 +24,8 @@ export type Empresa = {
 };
 
 export type Divergencia = {
-  id: number;
-  empresaId: number;
+  id: string;
+  empresaId: string;
   empresa: string;
   tipo: "CNPJ inválido" | "Duplicidade" | "Razão social" | "Endereço" | "Situação irregular" | "Dados ausentes";
   atual: string;
@@ -56,11 +56,11 @@ const nomes = [
 const sufixos = ["Distribuidora Ltda.", "Soluções Ltda.", "Logística Ltda.", "Clínica Integrada Ltda.", "Engenharia Ltda.", "Bistrô Ltda."];
 const responsaveis = ["Mariana Costa", "Lucas Ferreira", "Ana Ribeiro", "Rafael Alves", "Beatriz Lima"];
 
-// Mock ainda usado como base para os dados de `divergencias`/`tarefas`
-// abaixo (Auditoria/Calendário — escopo de planos futuros, não tocados por
-// esta task). `id`/`abertura` são strings aqui só para bater com o shape
-// real de `Empresa` (ver decisão de shape no plano de Onboarding); nenhum
-// consumidor atual desses mocks lê `id`/`abertura` diretamente.
+// Mock ainda usado como base para os dados de `tarefas` abaixo (Calendário —
+// escopo de plano futuro, não tocado por esta task). `id`/`abertura` são
+// strings aqui só para bater com o shape real de `Empresa` (ver decisão de
+// shape no plano de Onboarding); nenhum consumidor atual desses mocks lê
+// `id`/`abertura` diretamente.
 export const empresas: Empresa[] = Array.from({ length: 38 }, (_, index) => {
   const i = index + 1;
   const nome = nomes[index % nomes.length];
@@ -85,17 +85,6 @@ export const empresas: Empresa[] = Array.from({ length: 38 }, (_, index) => {
     tags: index % 2 ? ["Mensal", "Simples Nacional"] : ["Prioridade", "Lucro Presumido"],
   };
 });
-
-export const divergencias: Divergencia[] = [
-  { id: 1, empresaId: 17, empresa: empresas[16].razaoSocial, tipo: "CNPJ inválido", atual: empresas[16].cnpj, sugerido: "12.345.678/0001-09", status: "Pendente" },
-  { id: 2, empresaId: 4, empresa: empresas[3].razaoSocial, tipo: "Duplicidade", atual: "Cadastro similar ao ID #28", sugerido: "Unificar cadastros", status: "Pendente" },
-  { id: 3, empresaId: 8, empresa: empresas[7].razaoSocial, tipo: "Razão social", atual: "Prisma Comercio Ltda", sugerido: empresas[7].razaoSocial, status: "Revisado" },
-  { id: 4, empresaId: 23, empresa: empresas[22].razaoSocial, tipo: "Dados ausentes", atual: "Endereço não informado", sugerido: "Solicitar comprovante", status: "Pendente" },
-  { id: 5, empresaId: 5, empresa: empresas[4].razaoSocial, tipo: "Situação irregular", atual: "Suspensa desde 12/04/2026", sugerido: "Confirmar regularização", status: "Pendente" },
-  { id: 6, empresaId: 6, empresa: empresas[5].razaoSocial, tipo: "Situação irregular", atual: "Baixada na Receita Federal", sugerido: "Encerrar contrato", status: "Ignorado" },
-  { id: 7, empresaId: 11, empresa: empresas[10].razaoSocial, tipo: "Endereço", atual: "Sem complemento", sugerido: "Validar via CNPJ", status: "Pendente" },
-  { id: 8, empresaId: 28, empresa: empresas[27].razaoSocial, tipo: "Duplicidade", atual: "Mesmo CNPJ do ID #4", sugerido: "Consolidar registros", status: "Pendente" },
-];
 
 export const tarefas: Tarefa[] = [
   { id: 1, titulo: "Fechamento da folha", tipo: "Folha", empresa: empresas[0].fantasia, responsavel: "Mariana Costa", vencimento: "2026-07-24", status: "Atrasada" },
@@ -258,8 +247,50 @@ export async function listarPerfis(): Promise<{ id: string; nome: string }[]> {
   return response.json();
 }
 
-/** Ponto de integração: trocar pelo GET /auditoria/divergencias (plano futuro). */
-export const listarDivergencias = () => pause(divergencias);
+/** GET /api/auditoria/divergencias — lista as divergências do escritório da sessão autenticada. */
+export async function listarDivergencias(): Promise<Divergencia[]> {
+  const response = await fetch("/api/auditoria/divergencias");
+  if (!response.ok) {
+    throw new Error(await extrairMensagemDeErro(response, "Não foi possível carregar as divergências."));
+  }
+  return response.json();
+}
+
+/** PATCH /api/auditoria/divergencias/:id — aplica uma ação de tratamento sobre a divergência. */
+export async function tratarDivergencia(
+  id: string,
+  acao: "revisar" | "ignorar" | "aplicar_sugestao",
+): Promise<Divergencia> {
+  const response = await fetch(`/api/auditoria/divergencias/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ acao }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await extrairMensagemDeErro(response, "Não foi possível atualizar a divergência."));
+  }
+
+  return response.json();
+}
+
+export type ResumoAuditoria = { detectadas: number; resolvidas: number };
+
+/** POST /api/auditoria/executar — roda o motor de regras (interno sempre, externo/BrasilAPI quando `incluirRegrasExternas`) e sincroniza `divergencias`. */
+export async function executarAuditoria(incluirRegrasExternas: boolean): Promise<ResumoAuditoria> {
+  const response = await fetch("/api/auditoria/executar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ incluirRegrasExternas }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await extrairMensagemDeErro(response, "Não foi possível revalidar a carteira."));
+  }
+
+  return response.json();
+}
+
 /** Ponto de integração: trocar pelo GET /tarefas e POST /tarefas (plano futuro). */
 export const listarTarefas = () => pause(tarefas);
 /** Ponto de integração: BrasilAPI /api/feriados/v1/{ano}. */

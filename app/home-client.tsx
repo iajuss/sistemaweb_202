@@ -3,8 +3,8 @@
 import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
-  consultarCNPJ, divergencias as divergenciasMock, feriadosNacionais,
-  listarDivergencias, listarEmpresas, listarPerfis, listarTarefas, salvarEmpresa,
+  consultarCNPJ, executarAuditoria, feriadosNacionais,
+  listarDivergencias, listarEmpresas, listarPerfis, listarTarefas, salvarEmpresa, tratarDivergencia,
   type Divergencia, type Empresa, type Tarefa,
 } from "../src/services/portfolio";
 
@@ -139,14 +139,65 @@ function Onboarding({ companies, setCompanies, perfis, userName }: { companies: 
 
 function Audit({ issues, setIssues }: { issues: Divergencia[]; setIssues: (issues: Divergencia[]) => void }) {
   const [type, setType] = useState("Todos"); const [status, setStatus] = useState("Todos");
-  const types = ["Todos", ...Array.from(new Set(divergenciasMock.map((d) => d.tipo)))];
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [revalidating, setRevalidating] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const types = ["Todos", ...Array.from(new Set(issues.map((d) => d.tipo)))];
   const filtered = issues.filter((i) => (type === "Todos" || i.tipo === type) && (status === "Todos" || i.status === status));
-  const update = (id: number, next: Divergencia["status"]) => setIssues(issues.map((i) => i.id === id ? { ...i, status: next } : i));
+
+  const refetch = async (falhaParcial: string) => {
+    try {
+      const atualizadas = await listarDivergencias();
+      setIssues(atualizadas);
+    } catch {
+      // A ação em si já foi persistida no passo anterior — só a atualização
+      // da lista falhou. Não reusar a mensagem de erro da ação, ou o usuário
+      // pode repetir a ação já concluída (mesmo cuidado do `save()` do
+      // Onboarding).
+      setActionError(falhaParcial);
+    }
+  };
+
+  const update = async (id: string, acao: "revisar" | "ignorar" | "aplicar_sugestao") => {
+    setUpdatingId(id); setActionError("");
+    try {
+      await tratarDivergencia(id, acao);
+    } catch (error) {
+      const bruta = error instanceof Error ? error.message : "Não foi possível atualizar a divergência";
+      setActionError(`${semPontoFinal(bruta)}. Tente novamente.`);
+      setUpdatingId(null);
+      return;
+    }
+    await refetch("Divergência atualizada, mas não foi possível atualizar a lista. Atualize a página.");
+    setUpdatingId(null);
+  };
+
+  const revalidar = async () => {
+    setRevalidating(true); setActionError("");
+    try {
+      await executarAuditoria(true);
+    } catch (error) {
+      const bruta = error instanceof Error ? error.message : "Não foi possível revalidar a carteira";
+      setActionError(`${semPontoFinal(bruta)}. Tente novamente.`);
+      setRevalidating(false);
+      return;
+    }
+    await refetch("Carteira revalidada, mas não foi possível atualizar a lista. Atualize a página.");
+    setRevalidating(false);
+  };
+
   return <>
-    <section className="section-head"><div><h2>Auditoria de clientes</h2><p>Inconsistências encontradas nos registros da carteira.</p></div><Badge tone="warning">{issues.filter((i) => i.status === "Pendente").length} pendentes</Badge></section>
+    <section className="section-head">
+      <div><h2>Auditoria de clientes</h2><p>Inconsistências encontradas nos registros da carteira.</p></div>
+      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+        <button className="primary" onClick={revalidar} disabled={revalidating}>{revalidating ? "Revalidando…" : "Revalidar carteira"}</button>
+        <Badge tone="warning">{issues.filter((i) => i.status === "Pendente").length} pendentes</Badge>
+      </div>
+    </section>
+    {actionError && <div className="notice error"><p>{actionError}</p></div>}
     <section className="audit-summary">{types.slice(1).map((t) => <article key={t}><span>{t === "CNPJ inválido" ? "#" : "!"}</span><strong>{issues.filter((i) => i.tipo === t).length}</strong><p>{t}</p></article>)}</section>
     <section className="filters"><label>Tipo<select value={type} onChange={(e) => setType(e.target.value)}>{types.map((t) => <option key={t}>{t}</option>)}</select></label><label>Tratamento<select value={status} onChange={(e) => setStatus(e.target.value)}>{["Todos", "Pendente", "Revisado", "Ignorado"].map((s) => <option key={s}>{s}</option>)}</select></label></section>
-    <section className="panel table-wrap"><table className="audit-table"><thead><tr><th>Empresa</th><th>Ocorrência</th><th>Valor atual</th><th>Sugestão</th><th>Status</th><th>Ações</th></tr></thead><tbody>{filtered.map((i) => <tr key={i.id}><td><strong>{i.empresa}</strong></td><td><Badge tone="neutral">{i.tipo}</Badge></td><td>{i.atual}</td><td>{i.sugerido || "—"}</td><td><Badge tone={i.status === "Pendente" ? "warning" : i.status === "Revisado" ? "success" : "neutral"}>{i.status}</Badge></td><td className="actions"><button onClick={() => update(i.id, "Revisado")}>Corrigir</button><button onClick={() => update(i.id, "Ignorado")}>Ignorar</button></td></tr>)}</tbody></table>{filtered.length === 0 && <Empty title="Nenhuma ocorrência neste filtro" text="As divergências tratadas continuam disponíveis no histórico." />}</section>
+    <section className="panel table-wrap"><table className="audit-table"><thead><tr><th>Empresa</th><th>Ocorrência</th><th>Valor atual</th><th>Sugestão</th><th>Status</th><th>Ações</th></tr></thead><tbody>{filtered.map((i) => <tr key={i.id}><td><strong>{i.empresa}</strong></td><td><Badge tone="neutral">{i.tipo}</Badge></td><td>{i.atual}</td><td>{i.sugerido || "—"}</td><td><Badge tone={i.status === "Pendente" ? "warning" : i.status === "Revisado" ? "success" : "neutral"}>{i.status}</Badge></td><td className="actions"><button onClick={() => update(i.id, "revisar")} disabled={updatingId === i.id}>Corrigir</button><button onClick={() => update(i.id, "ignorar")} disabled={updatingId === i.id}>Ignorar</button>{i.sugerido && <button onClick={() => update(i.id, "aplicar_sugestao")} disabled={updatingId === i.id}>Aplicar sugestão</button>}</td></tr>)}</tbody></table>{filtered.length === 0 && <Empty title="Nenhuma ocorrência neste filtro" text="As divergências tratadas continuam disponíveis no histórico." />}</section>
   </>;
 }
 
