@@ -8,7 +8,7 @@ import {
   type Divergencia, type Empresa, type Tarefa,
 } from "../src/services/portfolio";
 
-type View = "Visão geral" | "Onboarding" | "Auditoria" | "Análise" | "Calendário";
+type View = "Visão geral" | "Onboarding" | "Auditoria" | "Análise" | "Calendário" | "Configurações";
 const nav: { label: View; icon: string }[] = [
   { label: "Visão geral", icon: "⌂" }, { label: "Onboarding", icon: "＋" }, { label: "Auditoria", icon: "◈" },
   { label: "Análise", icon: "▥" }, { label: "Calendário", icon: "□" },
@@ -28,7 +28,7 @@ function Empty({ title = "Nenhum resultado encontrado", text = "Ajuste seus filt
   return <div className="empty"><span>⌕</span><strong>{title}</strong><p>{text}</p></div>;
 }
 
-export function HomeClient({ userName }: { userName: string }) {
+export function HomeClient({ userName, userEmail }: { userName: string; userEmail: string }) {
   const [view, setView] = useState<View>("Visão geral");
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -64,7 +64,9 @@ export function HomeClient({ userName }: { userName: string }) {
     view === "Visão geral" ? <Overview companies={companies} issues={issues} tasks={tasks} go={setView} /> :
     view === "Onboarding" ? <Onboarding companies={companies} setCompanies={setCompanies} /> :
     view === "Auditoria" ? <Audit issues={issues} setIssues={setIssues} /> :
-    view === "Análise" ? <Analysis companies={companies} /> : <Calendar tasks={tasks} setTasks={setTasks} companies={companies} />
+    view === "Análise" ? <Analysis companies={companies} /> :
+    view === "Calendário" ? <Calendar tasks={tasks} setTasks={setTasks} companies={companies} /> :
+    <Settings userName={userName} userEmail={userEmail} />
   );
 
   return <main className={`app-shell ${sidebarCollapsed ? "sidebar-is-collapsed" : ""}`}>
@@ -74,7 +76,7 @@ export function HomeClient({ userName }: { userName: string }) {
         <button className="sidebar-toggle" type="button" title={sidebarCollapsed ? "Expandir menu" : "Recolher menu"} aria-label={sidebarCollapsed ? "Expandir navegação" : "Recolher navegação"} onClick={() => setSidebarCollapsed((current) => !current)}><span className="sidebar-glyph" aria-hidden="true" /></button>
       </div>
       <nav>{nav.map((item) => <button key={item.label} title={sidebarCollapsed ? item.label : undefined} className={view === item.label ? "active" : ""} onClick={() => { setView(item.label); setMenuOpen(false); }}><i>{item.icon}</i><span className="nav-label">{item.label}</span></button>)}</nav>
-      <div className="sidebar-footer"><button className="sidebar-settings" aria-label="Configurações" title="Configurações"><span className="settings-icon" aria-hidden="true">⚙</span><span className="nav-label">Configurações</span></button><button className="sidebar-logout" type="button" title="Sair da conta" onClick={logout}><span className="logout-icon" aria-hidden="true" /><span className="nav-label">Sair da conta</span></button></div>
+      <div className="sidebar-footer"><button className={`sidebar-settings ${view === "Configurações" ? "active" : ""}`} aria-label="Configurações" title="Configurações" onClick={() => { setView("Configurações"); setMenuOpen(false); }}><span className="settings-icon" aria-hidden="true">⚙</span><span className="nav-label">Configurações</span></button><button className="sidebar-logout" type="button" title="Sair da conta" onClick={logout}><span className="logout-icon" aria-hidden="true" /><span className="nav-label">Sair da conta</span></button></div>
     </aside>
     {menuOpen && <button className="backdrop" aria-label="Fechar menu" onClick={() => setMenuOpen(false)} />}
     <section className="workspace">
@@ -88,6 +90,64 @@ export function HomeClient({ userName }: { userName: string }) {
 }
 
 function Loading() { return <div className="loading-grid">{Array.from({ length: 8 }).map((_, i) => <div className="skeleton" key={i} />)}</div>; }
+
+function Settings({ userName, userEmail }: { userName: string; userEmail: string }) {
+  const [senha, setSenha] = useState("");
+  const [confirmacao, setConfirmacao] = useState("");
+  const [message, setMessage] = useState("");
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [vision, setVision] = useState<"default" | "colorblind">("default");
+  const [fontSize, setFontSize] = useState<"small" | "normal" | "large">("normal");
+
+  useEffect(() => {
+    setVision(window.localStorage.getItem("controle-carteira-vision") === "colorblind" ? "colorblind" : "default");
+    const savedSize = window.localStorage.getItem("controle-carteira-font-size");
+    if (savedSize === "small" || savedSize === "large") setFontSize(savedSize);
+  }, []);
+
+  const applyVision = (value: "default" | "colorblind") => {
+    setVision(value);
+    window.localStorage.setItem("controle-carteira-vision", value);
+    document.documentElement.dataset.vision = value;
+  };
+
+  const applyFontSize = (value: "small" | "normal" | "large") => {
+    setFontSize(value);
+    window.localStorage.setItem("controle-carteira-font-size", value);
+    document.documentElement.dataset.fontSize = value;
+  };
+
+  const updatePassword = async (event: FormEvent) => {
+    event.preventDefault();
+    setMessage("");
+    if (senha !== confirmacao) {
+      setMessage("As senhas informadas não coincidem.");
+      return;
+    }
+    setSavingPassword(true);
+    const response = await fetch("/api/auth/password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ senha }) });
+    if (!response.ok) {
+      const data = (await response.json()) as { error?: string };
+      setMessage(data.error ?? "Não foi possível atualizar a senha.");
+      setSavingPassword(false);
+      return;
+    }
+    setSenha("");
+    setConfirmacao("");
+    setMessage("Senha atualizada com sucesso.");
+    setSavingPassword(false);
+  };
+
+  return <>
+    <section className="section-head settings-heading"><div><p className="eyebrow">Conta e acessibilidade</p><h2>Configurações</h2><p>Gerencie suas informações, segurança e preferências de visualização.</p></div></section>
+    <section className="settings-grid">
+      <article className="panel account-card"><div className="account-avatar">{userName.slice(0, 2).toUpperCase()}</div><div><p className="settings-label">Conta conectada</p><h3>{userName}</h3><p>{userEmail}</p></div></article>
+      <article className="panel settings-panel"><div className="settings-panel-head"><span>◉</span><div><h3>Redefinir senha</h3><p>Escolha uma nova senha com pelo menos 8 caracteres.</p></div></div><form className="settings-form" onSubmit={updatePassword}><label>Nova senha<input type="password" autoComplete="new-password" minLength={8} required value={senha} onChange={(event) => setSenha(event.target.value)} /></label><label>Confirmar nova senha<input type="password" autoComplete="new-password" minLength={8} required value={confirmacao} onChange={(event) => setConfirmacao(event.target.value)} /></label>{message && <p className={message.includes("sucesso") ? "settings-message success" : "settings-message error"}>{message}</p>}<button className="primary" disabled={savingPassword}>{savingPassword ? "Atualizando…" : "Atualizar senha"}</button></form></article>
+      <article className="panel settings-panel"><div className="settings-panel-head"><span>◌</span><div><h3>Modo daltonismo</h3><p>Usa a paleta Okabe–Ito e indicadores textuais para não depender apenas de vermelho e verde.</p></div></div><div className="choice-group" role="radiogroup" aria-label="Modo daltonismo"><button type="button" className={vision === "default" ? "selected" : ""} role="radio" aria-checked={vision === "default"} onClick={() => applyVision("default")}><i className="palette-default" />Padrão</button><button type="button" className={vision === "colorblind" ? "selected" : ""} role="radio" aria-checked={vision === "colorblind"} onClick={() => applyVision("colorblind")}><i className="palette-colorblind" />Daltonismo</button></div></article>
+      <article className="panel settings-panel"><div className="settings-panel-head"><span>Aa</span><div><h3>Tamanho da fonte</h3><p>Ajuste a leitura do sistema neste dispositivo.</p></div></div><div className="choice-group font-choices" role="radiogroup" aria-label="Tamanho da fonte">{([ ["small", "Menor"], ["normal", "Padrão"], ["large", "Maior"] ] as const).map(([value, label]) => <button type="button" key={value} className={fontSize === value ? "selected" : ""} role="radio" aria-checked={fontSize === value} onClick={() => applyFontSize(value)}><i className={`font-${value}`}>A</i>{label}</button>)}</div></article>
+    </section>
+  </>;
+}
 
 function Overview({ companies, issues, tasks, go }: { companies: Empresa[]; issues: Divergencia[]; tasks: Tarefa[]; go: (view: View) => void }) {
   const active = companies.filter((c) => c.status === "Ativa").length;
@@ -145,7 +205,15 @@ function Analysis({ companies }: { companies: Empresa[] }) {
   </>;
 }
 function ChartCard({ title, children }: { title: string; children: ReactNode }) { return <article className="chart-card"><h3>{title}</h3><div className="chart">{children}</div></article>; }
-function BarVisual({ data }: { data: { name: string; value: number }[] }) { return <ResponsiveContainer width="100%" height="100%"><BarChart data={data} layout="vertical" margin={{ left: 6, right: 12 }}><XAxis type="number" hide /><YAxis type="category" dataKey="name" width={96} tick={{ fontSize: 11, fill: "#617179" }} axisLine={false} tickLine={false} /><Tooltip cursor={false} /><Bar dataKey="value" fill="#2d6478" radius={[0, 5, 5, 0]} barSize={14} /></BarChart></ResponsiveContainer>; }
+function axisLabelLines(value: string) { return value.split(" ").reduce<string[]>((lines, word) => { const current = lines.at(-1); if (!current || `${current} ${word}`.length > 13) return [...lines, word]; return [...lines.slice(0, -1), `${current} ${word}`]; }, []); }
+function BarAxisTick({ y = 0, payload }: { y?: number; payload?: { value: string } }) { const lines = axisLabelLines(payload?.value ?? ""); return <text x={4} y={y - ((lines.length - 1) * 6)} fill="#617179" fontSize={11} textAnchor="start">{lines.map((line, index) => <tspan key={line} x={4} dy={index === 0 ? 4 : 12}>{line}</tspan>)}</text>; }
+function BarVisual({ data }: { data: { name: string; value: number }[] }) {
+  const labelWidth = Math.max(36, ...data.map(({ name }) => {
+    const largestLine = Math.max(...axisLabelLines(name).map((line) => line.length * 6 + 16));
+    return Math.min(92, largestLine);
+  }));
+  return <ResponsiveContainer width="100%" height="100%"><BarChart data={data} layout="vertical" margin={{ left: 6, right: 12 }}><XAxis type="number" hide /><YAxis type="category" dataKey="name" width={labelWidth} tick={<BarAxisTick />} axisLine={false} tickLine={false} /><Tooltip cursor={false} /><Bar dataKey="value" fill="#2d6478" radius={[0, 5, 5, 0]} barSize={14} /></BarChart></ResponsiveContainer>;
+}
 function PieVisual({ data }: { data: { name: string; value: number }[] }) { return <div className="pie-layout"><ResponsiveContainer width="55%" height="100%"><PieChart><Pie data={data} dataKey="value" innerRadius={42} outerRadius={72} paddingAngle={3}>{data.map((_, i) => <Cell key={i} fill={cores[i % cores.length]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer><div className="legend">{data.map((d, i) => <p key={d.name}><i style={{ background: cores[i % cores.length] }} />{d.name}<strong>{d.value}</strong></p>)}</div></div>; }
 
 function Calendar({ tasks, setTasks, companies }: { tasks: Tarefa[]; setTasks: (tasks: Tarefa[]) => void; companies: Empresa[] }) {

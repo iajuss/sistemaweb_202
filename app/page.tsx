@@ -14,5 +14,7 @@ export default async function Page() {
 
   const { data: perfil } = await supabase.from("perfis").select("nome").eq("id", user.id).single();
 
-  return <HomeClient userName={perfil?.nome ?? user.email ?? "Usuário"} />;
+  const nomeDoUsuario = perfil?.nome ?? user.user_metadata?.nome ?? "Usuário";
+
+  return <HomeClient userName={nomeDoUsuario} userEmail={user.email ?? ""} />;
 }
