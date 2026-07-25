@@ -96,3 +96,20 @@ $$;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
+
+-- Segurança: evita que usuários mudem seu próprio tenant (escritorio_id)
+-- Cada política de RLS confia em perfis.escritorio_id como fonte de verdade
+-- Este gatilho garante que escritorio_id nunca possa ser alterado via UPDATE
+create or replace function public.prevent_perfil_tenant_change()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.escritorio_id := old.escritorio_id;
+  return new;
+end;
+$$;
+
+create trigger perfis_lock_escritorio_id
+  before update on public.perfis
+  for each row execute function public.prevent_perfil_tenant_change();
