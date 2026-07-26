@@ -58,3 +58,29 @@ export function formatarCNPJ(cnpj: string): string {
 
   return digitosSomente.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
 }
+
+const PADRAO_CNPJ_PONTUADO = /\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/;
+const PADRAO_CNPJ_14_DIGITOS = /\d{14}/;
+
+/**
+ * Extrai um CNPJ de um texto colado que pode conter outros números ao
+ * redor (avaliação, telefone, endereço etc. — comum ao colar direto de
+ * uma busca do Google). Em vez de concatenar todos os dígitos do texto e
+ * pegar os 14 primeiros — o que embaralha o CNPJ quando há dígitos
+ * espúrios antes dele —, procura primeiro o padrão pontuado
+ * `00.000.000/0000-00`, que é como o CNPJ aparece nesses textos, e só cai
+ * para "14 dígitos consecutivos" ou "todos os dígitos" como fallback.
+ */
+export function extrairCNPJDoTexto(texto: string): string {
+  const comPontuacao = texto.match(PADRAO_CNPJ_PONTUADO);
+  if (comPontuacao) {
+    return comPontuacao[0].replace(/\D/g, "");
+  }
+
+  const comDigitos = texto.match(PADRAO_CNPJ_14_DIGITOS);
+  if (comDigitos) {
+    return comDigitos[0];
+  }
+
+  return texto.replace(/\D/g, "").slice(0, 14);
+}

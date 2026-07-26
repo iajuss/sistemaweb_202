@@ -23,6 +23,15 @@ export type Empresa = {
   atualizadoEm?: string;
 };
 
+export type EmpresaRelacionada = {
+  id: string;
+  razaoSocial: string;
+  cnpj: string;
+  cidade: string;
+  estado: string;
+  status: string;
+};
+
 export type Divergencia = {
   id: string;
   empresaId: string;
@@ -31,6 +40,7 @@ export type Divergencia = {
   atual: string;
   sugerido?: string;
   status: "Pendente" | "Revisado" | "Ignorado";
+  empresaRelacionada?: EmpresaRelacionada | null;
 };
 
 export type Tarefa = {
@@ -169,6 +179,16 @@ export async function salvarEmpresa(empresa: Empresa): Promise<Empresa> {
   }
 
   return response.json();
+}
+
+/** DELETE /api/empresas/:id — remove a empresa (e, em cascata no banco,
+ * sócios, divergências, tarefas e modelos de recorrência associados). */
+export async function excluirEmpresa(id: string): Promise<void> {
+  const response = await fetch(`/api/empresas/${id}`, { method: "DELETE" });
+
+  if (!response.ok) {
+    throw new Error(await extrairMensagemDeErro(response, "Não foi possível excluir a empresa."));
+  }
 }
 
 export type EmpresaPatch = Partial<{

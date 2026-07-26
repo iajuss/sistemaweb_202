@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validarCNPJ, formatarCNPJ } from "../lib/cnpj.ts";
+import { validarCNPJ, formatarCNPJ, extrairCNPJDoTexto } from "../lib/cnpj.ts";
 
 test("aceita um CNPJ válido conhecido (dígitos verificadores corretos)", () => {
   assert.equal(validarCNPJ("11222333000181"), true);
@@ -35,4 +35,18 @@ test("formatarCNPJ é idempotente para uma entrada já mascarada", () => {
 
 test("formatarCNPJ retorna a entrada sem alteração quando não tem 14 dígitos", () => {
   assert.equal(formatarCNPJ("123"), "123");
+});
+
+test("extrairCNPJDoTexto extrai o CNPJ mesmo com texto colado ao redor (ex.: copiado do Google)", () => {
+  assert.equal(extrairCNPJDoTexto("CNPJ: 15.436.940/0001-03"), "15436940000103");
+  assert.equal(extrairCNPJDoTexto("4,8 · 15.436.940/0001-03"), "15436940000103");
+  assert.equal(extrairCNPJDoTexto("15.436.940/0001-03 · Loja de departamentos"), "15436940000103");
+});
+
+test("extrairCNPJDoTexto aceita CNPJ colado sem pontuação, sem outros números ao redor", () => {
+  assert.equal(extrairCNPJDoTexto("15436940000103"), "15436940000103");
+});
+
+test("extrairCNPJDoTexto cai para o fallback de dígitos quando não há padrão reconhecível", () => {
+  assert.equal(extrairCNPJDoTexto("abc123"), "123");
 });

@@ -66,6 +66,7 @@ export const divergencias = pgTable("divergencias", {
   empresaId: uuid("empresa_id")
     .notNull()
     .references(() => empresas.id, { onDelete: "cascade" }),
+  empresaRelacionadaId: uuid("empresa_relacionada_id").references(() => empresas.id, { onDelete: "set null" }),
   tipo: text("tipo").notNull(),
   atual: text("atual").notNull(),
   sugerido: text("sugerido"),

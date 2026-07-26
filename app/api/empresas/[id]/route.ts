@@ -89,3 +89,39 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 
   return applySetCookies(Response.json(paraShapeFrontend(empresaCompleta)));
 }
+
+// DELETE /api/empresas/:id — remove a empresa do escritório da sessão. RLS
+// garante que só é possível excluir empresas do próprio escritório; se o id
+// não existir ou pertencer a outro escritório, o delete afeta 0 linhas e
+// respondemos 404 (mesma convenção do PATCH acima). `empresas_socios` e
+// `modelos_recorrencia`/`tarefas` referenciam `empresas` com
+// `on delete cascade` (ver migrations), então não é preciso limpar
+// manualmente linhas relacionadas aqui.
+export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  const { supabase, applySetCookies } = await createSupabaseRouteHandlerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return applySetCookies(Response.json({ error: "Não autenticado." }, { status: 401 }));
+  }
+
+  const { data: empresaExcluida, error: deleteError } = await supabase
+    .from("empresas")
+    .delete()
+    .eq("id", id)
+    .select("id")
+    .maybeSingle();
+
+  if (deleteError) {
+    return applySetCookies(Response.json({ error: "Não foi possível excluir a empresa." }, { status: 500 }));
+  }
+
+  if (!empresaExcluida) {
+    return applySetCookies(Response.json({ error: "Empresa não encontrada." }, { status: 404 }));
+  }
+
+  return applySetCookies(new Response(null, { status: 204 }));
+}

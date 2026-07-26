@@ -164,6 +164,7 @@ export async function POST(request: Request) {
         tipo: "Duplicidade",
         atual: `Possível duplicidade com ${par.razao_social}`,
         sugerido: null,
+        empresaRelacionadaId: par.empresa_id,
       });
     }
 
@@ -245,6 +246,7 @@ export async function POST(request: Request) {
     tipo: string;
     atual: string;
     sugerido: string | null;
+    empresa_relacionada_id: string | null;
   }[] = [];
 
   for (const divergencia of detectadas) {
@@ -268,6 +270,7 @@ export async function POST(request: Request) {
       tipo: divergencia.tipo,
       atual: divergencia.atual,
       sugerido: divergencia.sugerido,
+      empresa_relacionada_id: divergencia.empresaRelacionadaId ?? null,
     });
 
     // Atualiza o "último conhecido" em memória: se a mesma empresa/tipo for

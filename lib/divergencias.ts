@@ -8,9 +8,19 @@ import type { createServerClient } from "@supabase/ssr";
 
 type SupabaseClient = ReturnType<typeof createServerClient>;
 
+export type EmpresaRelacionadaRow = {
+  id: string;
+  razao_social: string;
+  cnpj: string;
+  cidade: string;
+  estado: string;
+  situacao_cadastral: string;
+};
+
 export type DivergenciaRow = {
   id: string;
   empresa_id: string;
+  empresa_relacionada_id: string | null;
   tipo: string;
   atual: string;
   sugerido: string | null;
@@ -18,9 +28,15 @@ export type DivergenciaRow = {
   detectado_em: string;
   resolvido_em: string | null;
   empresas: { razao_social: string } | null;
+  empresa_relacionada: EmpresaRelacionadaRow | null;
 };
 
-export const DIVERGENCIA_SELECT = "*, empresas(razao_social)";
+// Duas FKs para `empresas` (empresa_id e empresa_relacionada_id) exigem
+// desambiguar cada embed pelo nome da constraint — sem isso o PostgREST não
+// sabe qual delas usar para cada alias.
+export const DIVERGENCIA_SELECT =
+  "*, empresas!divergencias_empresa_id_empresas_id_fk(razao_social), " +
+  "empresa_relacionada:empresas!divergencias_empresa_relacionada_id_empresas_id_fk(id, razao_social, cnpj, cidade, estado, situacao_cadastral)";
 
 export function paraShapeFrontend(row: DivergenciaRow) {
   return {
@@ -31,6 +47,16 @@ export function paraShapeFrontend(row: DivergenciaRow) {
     atual: row.atual,
     sugerido: row.sugerido,
     status: row.status,
+    empresaRelacionada: row.empresa_relacionada
+      ? {
+          id: row.empresa_relacionada.id,
+          razaoSocial: row.empresa_relacionada.razao_social,
+          cnpj: row.empresa_relacionada.cnpj,
+          cidade: row.empresa_relacionada.cidade,
+          estado: row.empresa_relacionada.estado,
+          status: row.empresa_relacionada.situacao_cadastral,
+        }
+      : null,
   };
 }
 

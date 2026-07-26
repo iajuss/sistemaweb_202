@@ -23,6 +23,10 @@ export type DivergenciaDetectada = {
   tipo: "CNPJ inválido" | "Duplicidade" | "Razão social" | "Endereço" | "Situação irregular" | "Dados ausentes";
   atual: string;
   sugerido: string | null;
+  // Só "Duplicidade" tem uma "outra empresa" do par — usado no frontend para
+  // oferecer a ação de excluir uma das duas. As outras 5 regras (avaliadas
+  // por empresa, nunca em par) nunca preenchem este campo.
+  empresaRelacionadaId?: string;
 };
 
 /** `validarCNPJ` já remove máscara/valida dígitos verificadores. */
