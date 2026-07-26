@@ -19,19 +19,25 @@ function axisLabelLines(value: string) {
   }, []);
 }
 
-function BarAxisTick({ y = 0, payload }: { y?: number; payload?: { value: string } }) {
+function BarAxisTick({ y = 0, payload, onSelect }: { y?: number; payload?: { value: string }; onSelect?: (name: string) => void }) {
   const lines = axisLabelLines(payload?.value ?? "");
-  return <text x={4} y={y - ((lines.length - 1) * 6)} fill="#617179" fontSize={11} textAnchor="start">{lines.map((line, index) => <tspan key={line} x={4} dy={index === 0 ? 4 : 12}>{line}</tspan>)}</text>;
+  return <text x={4} y={y - ((lines.length - 1) * 6)} fill="#617179" fontSize={11} textAnchor="start" onClick={onSelect ? () => onSelect(payload!.value) : undefined} className={onSelect ? "bar-axis-tick-clickable" : undefined}>{lines.map((line, index) => <tspan key={line} x={4} dy={index === 0 ? 4 : 12}>{line}</tspan>)}</text>;
 }
 
-export function BarVisual({ data }: { data: { name: string; value: number }[] }) {
+function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number }[]; label?: string }) {
+  if (!active || !payload?.length) return null;
+  const { name, value } = payload[0];
+  return <div className="chart-tooltip">{label ?? name}<strong>{value}</strong></div>;
+}
+
+export function BarVisual({ data, onSelect }: { data: { name: string; value: number }[]; onSelect?: (name: string) => void }) {
   const labelWidth = Math.max(36, ...data.map(({ name }) => {
     const largestLine = Math.max(...axisLabelLines(name).map((line) => line.length * 6 + 16));
     return Math.min(92, largestLine);
   }));
-  return <ResponsiveContainer width="100%" height="100%"><BarChart data={data} layout="vertical" margin={{ left: 6, right: 12 }}><XAxis type="number" hide /><YAxis type="category" dataKey="name" width={labelWidth} tick={<BarAxisTick />} axisLine={false} tickLine={false} /><Tooltip cursor={false} /><Bar dataKey="value" fill="#2d6478" radius={[0, 5, 5, 0]} barSize={14} /></BarChart></ResponsiveContainer>;
+  return <ResponsiveContainer width="100%" height="100%"><BarChart data={data} layout="vertical" margin={{ left: 6, right: 12 }}><XAxis type="number" hide /><YAxis type="category" dataKey="name" width={labelWidth} tick={<BarAxisTick onSelect={onSelect} />} axisLine={false} tickLine={false} /><Tooltip cursor={false} content={<ChartTooltip />} allowEscapeViewBox={{ x: false, y: false }} /><Bar dataKey="value" fill="#2d6478" activeBar={onSelect ? { fill: "#21506a" } : undefined} radius={[0, 5, 5, 0]} barSize={14} onClick={onSelect ? (entry) => { const nome = entry.payload?.name; if (nome) onSelect(nome); } : undefined} style={onSelect ? { cursor: "pointer" } : undefined} /></BarChart></ResponsiveContainer>;
 }
 
-export function PieVisual({ data }: { data: { name: string; value: number }[] }) {
-  return <div className="pie-layout"><ResponsiveContainer width="55%" height="100%"><PieChart><Pie data={data} dataKey="value" innerRadius={42} outerRadius={72} paddingAngle={3}>{data.map((_, i) => <Cell key={i} fill={cores[i % cores.length]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer><div className="legend">{data.map((d, i) => <p key={d.name}><i style={{ background: cores[i % cores.length] }} />{d.name}<strong>{d.value}</strong></p>)}</div></div>;
+export function PieVisual({ data, legend = true, onSelect }: { data: { name: string; value: number }[]; legend?: boolean; onSelect?: (name: string) => void }) {
+  return <div className="pie-layout"><ResponsiveContainer width={legend ? "55%" : "100%"} height="100%"><PieChart><Pie data={data} dataKey="value" innerRadius={42} outerRadius={72} paddingAngle={3} onClick={onSelect ? (entry) => { if (entry.name != null) onSelect(String(entry.name)); } : undefined} style={onSelect ? { cursor: "pointer" } : undefined}>{data.map((_, i) => <Cell key={i} fill={cores[i % cores.length]} />)}</Pie><Tooltip content={<ChartTooltip />} allowEscapeViewBox={{ x: false, y: false }} /></PieChart></ResponsiveContainer>{legend && <div className="legend">{data.map((d, i) => <p key={d.name} className={onSelect ? "legend-clickable" : undefined} onClick={onSelect ? () => onSelect(d.name) : undefined}><i style={{ background: cores[i % cores.length] }} />{d.name}<strong>{d.value}</strong></p>)}</div>}</div>;
 }

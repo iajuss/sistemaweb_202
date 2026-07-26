@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardEvent, FormEvent, lazy, ReactNode, Suspense, useEffect, useState } from "react";
+import { ClipboardEvent, FormEvent, lazy, ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { extrairCNPJDoTexto, validarCNPJ } from "../lib/cnpj";
 import {
   atualizarEmpresa, consultarCNPJ, excluirEmpresa,
@@ -416,39 +416,145 @@ function Onboarding({ companies, setCompanies, perfis, userName, setIssues }: {
 // sugestão" como correção real, e "Duplicidade" tem seu próprio modal.
 const TIPOS_CORRIGIVEIS_NO_CADASTRO = new Set(["CNPJ inválido", "Situação irregular", "Dados ausentes"]);
 
-function ResolverDuplicidade({ divergencia, companies, onClose, onResolved }: {
-  divergencia: Divergencia; companies: Empresa[]; onClose: () => void; onResolved: () => void;
+// Um grupo de N empresas com o mesmo nome gera C(N,2) divergências de
+// Duplicidade (uma por par), o que enche a tabela de Auditoria de linhas
+// repetitivas dizendo a mesma coisa (mesmo nome, mesmo texto) — parece que
+// "a mesma duplicidade" está se repetendo, quando na verdade são pares
+// genuinamente diferentes dentro do mesmo grupo. Para a tabela, agrupamos
+// (mesma busca em grafo do `ResolverDuplicidade`) e mostramos só 1 linha por
+// grupo — resolver aquela linha já abre o modal com o grupo inteiro.
+function clustersDuplicidadePendente(issues: Divergencia[]): { representanteId: string; empresas: number }[] {
+  const pendentes = issues.filter((i) => i.tipo === "Duplicidade" && i.status === "Pendente" && i.empresaRelacionada);
+  const visitados = new Set<string>();
+  const grupos: { representanteId: string; empresas: number }[] = [];
+
+  for (const base of pendentes) {
+    if (visitados.has(base.id)) continue;
+
+    const idsEmpresas = new Set<string>([base.empresaId, base.empresaRelacionada!.id]);
+    let cresceu = true;
+    while (cresceu) {
+      cresceu = false;
+      for (const d of pendentes) {
+        if (!d.empresaRelacionada) continue;
+        const a = d.empresaId, b = d.empresaRelacionada.id;
+        if (idsEmpresas.has(a) && !idsEmpresas.has(b)) { idsEmpresas.add(b); cresceu = true; }
+        if (idsEmpresas.has(b) && !idsEmpresas.has(a)) { idsEmpresas.add(a); cresceu = true; }
+      }
+    }
+
+    const linhasDoGrupo = pendentes.filter((d) => d.empresaRelacionada && idsEmpresas.has(d.empresaId) && idsEmpresas.has(d.empresaRelacionada.id));
+    linhasDoGrupo.forEach((d) => visitados.add(d.id));
+    const representante = linhasDoGrupo.reduce((maisRecente, atual) => (new Date(atual.detectadoEm) > new Date(maisRecente.detectadoEm) ? atual : maisRecente), linhasDoGrupo[0]);
+    grupos.push({ representanteId: representante.id, empresas: idsEmpresas.size });
+  }
+
+  return grupos;
+}
+
+// Quantos campos relevantes estão preenchidos — critério de desempate quando
+// duas empresas do cluster têm o mesmo número de divergências (ver
+// `divergenciasPendentes` abaixo, que é o critério principal).
+function completudeCadastro(e: Empresa): number {
+  return [e.fantasia, e.endereco, e.cnae, e.cnaeCodigo, e.responsavel, e.abertura, e.socios.length > 0 ? "x" : ""].filter(Boolean).length;
+}
+
+// Quantas divergências pendentes essa empresa tem contra o cache da última
+// consulta à API (Razão social, Endereço, CNAE/dados ausentes, Situação
+// irregular, CNPJ inválido) — critério principal para apontar qual cadastro
+// do par/cluster é o mais confiável: um cadastro com todos os campos
+// preenchidos mas endereço desatualizado tem menos valor que um levemente
+// incompleto porém batendo com a fonte oficial. "Duplicidade" não conta —
+// é o próprio motivo deste modal existir, não um problema de qualidade do
+// cadastro em si.
+function divergenciasPendentes(empresaId: string, issues: Divergencia[]): number {
+  return issues.filter((i) => i.empresaId === empresaId && i.status === "Pendente" && i.tipo !== "Duplicidade").length;
+}
+
+function ResolverDuplicidade({ divergencia, issues, companies, onClose, onResolved }: {
+  divergencia: Divergencia; issues: Divergencia[]; companies: Empresa[]; onClose: () => void; onResolved: (fechar: boolean) => void;
 }) {
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
+  const [excluidos, setExcluidos] = useState<Set<string>>(new Set());
   const [error, setError] = useState("");
-  const empresaAtual = companies.find((c) => c.id === divergencia.empresaId) ?? null;
-  const relacionada = divergencia.empresaRelacionada ?? null;
-  const cartoes = [empresaAtual, relacionada].filter((e): e is NonNullable<typeof e> => e !== null);
+  // Guarda síncrona contra dois cliques em rajada (ex.: um segundo clique
+  // antes do React re-renderizar e desabilitar os botões via `excluindoId`)
+  // acabarem chamando `excluir` duas vezes para empresas diferentes ao mesmo
+  // tempo — `useState` sozinho não bloqueia isso a tempo porque a atualização
+  // só é visível no próximo render.
+  const excluindoEmAndamento = useRef(false);
+
+  // Uma empresa pode ser duplicidade de mais de uma outra ao mesmo tempo —
+  // cada par vira uma divergência própria (ver comentário em
+  // app/api/auditoria/executar/route.ts sobre idempotência de Duplicidade).
+  // Por isso reunimos aqui TODO o cluster, seguindo a cadeia de pares
+  // transitivamente (A-B e B-C juntam A, B e C mesmo sem um par A-C direto)
+  // — parar na busca direta fazia o cluster mostrado variar dependendo de
+  // qual empresa/par especificamente foi clicado, quando deveria ser sempre
+  // o mesmo grupo completo.
+  const baseId = divergencia.empresaId;
+  const idsDoCluster = new Set<string>([baseId]);
+  let cresceu = true;
+  while (cresceu) {
+    cresceu = false;
+    for (const i of issues) {
+      if (i.tipo !== "Duplicidade" || i.status !== "Pendente" || !i.empresaRelacionada) continue;
+      const a = i.empresaId, b = i.empresaRelacionada.id;
+      if (idsDoCluster.has(a) && !idsDoCluster.has(b)) { idsDoCluster.add(b); cresceu = true; }
+      if (idsDoCluster.has(b) && !idsDoCluster.has(a)) { idsDoCluster.add(a); cresceu = true; }
+    }
+  }
+
+  const cartoes = Array.from(idsDoCluster)
+    .map((id) => companies.find((c) => c.id === id) ?? null)
+    .filter((e): e is Empresa => e !== null && !excluidos.has(e.id))
+    .sort((a, b) => divergenciasPendentes(a.id, issues) - divergenciasPendentes(b.id, issues) || completudeCadastro(b) - completudeCadastro(a));
+
+  const melhorDivergencias = Math.min(Infinity, ...cartoes.map((e) => divergenciasPendentes(e.id, issues)));
+  const melhorCompletude = Math.max(0, ...cartoes.filter((e) => divergenciasPendentes(e.id, issues) === melhorDivergencias).map(completudeCadastro));
 
   const excluir = async (id: string) => {
+    if (excluindoEmAndamento.current) return;
+    excluindoEmAndamento.current = true;
     setExcluindoId(id); setError("");
     try {
       await excluirEmpresa(id);
-      onResolved();
+      const restantes = cartoes.filter((c) => c.id !== id);
+      setExcluidos((prev) => new Set(prev).add(id));
+      onResolved(restantes.length <= 1);
     } catch (err) {
       const bruta = err instanceof Error ? err.message : "Não foi possível excluir a empresa";
       setError(`${semPontoFinal(bruta)}. Tente novamente.`);
+    } finally {
+      excluindoEmAndamento.current = false;
       setExcluindoId(null);
     }
   };
 
-  return <div className="modal-layer" role="dialog" aria-modal="true" aria-label="Resolver duplicidade"><div className="modal">
+  return <div className="modal-layer" role="dialog" aria-modal="true" aria-label="Resolver duplicidade"><div className="modal duplicidade-modal">
     <button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button>
     <h2>Possível empresa duplicada</h2>
-    <p>Estes cadastros parecem ser a mesma empresa. Exclua o registro duplicado para manter a carteira consistente.</p>
+    <p>Estes cadastros parecem ser a mesma empresa. Compare os dados e exclua o(s) registro(s) duplicado(s) para manter a carteira consistente.</p>
     {error && <div className="notice error"><p>{error}</p></div>}
-    {!relacionada && <div className="notice"><p>A outra empresa deste par não está mais na carteira — esta divergência será limpa na próxima revalidação.</p></div>}
-    <div className="duplicidade-compare">{cartoes.map((e) => <article key={e.id} className="duplicidade-card">
+    {cartoes.length <= 1 && idsDoCluster.size > cartoes.length && <div className="notice"><p>As outras empresas deste grupo não estão mais na carteira — esta divergência será limpa na próxima revalidação.</p></div>}
+    <div className="duplicidade-compare">{cartoes.map((e) => { const divs = divergenciasPendentes(e.id, issues); return <article key={e.id} className="duplicidade-card">
+      {cartoes.length > 1 && <span className={`badge success duplicidade-badge${divs === melhorDivergencias && completudeCadastro(e) === melhorCompletude ? "" : " duplicidade-badge-oculto"}`}>Cadastro mais confiável</span>}
       <strong>{e.razaoSocial}</strong>
-      <small>CNPJ {e.cnpj}</small>
-      <small>{e.cidade}/{e.estado} · {e.status}</small>
+      <small>{e.fantasia} · CNPJ {e.cnpj}</small>
+      <div className="segmento-card-grid">
+        <div><span>Situação</span><strong>{e.status}</strong></div>
+        <div><span>Porte</span><strong>{e.porte}</strong></div>
+        <div><span>Localidade</span><strong>{e.cidade}/{e.estado}</strong></div>
+        <div><span>Responsável</span><strong>{e.responsavel || "—"}</strong></div>
+        <div className="full"><span>CNAE</span><strong>{e.cnaeCodigo ? `${e.cnaeCodigo} · ${e.cnae}` : e.cnae || "Não informado"}</strong></div>
+        <div className="full"><span>Endereço</span><strong>{e.endereco || "Não informado"}</strong></div>
+      </div>
+      <details className="socios-dropdown">
+        <summary>Quadro societário{e.socios.length > 0 ? ` (${e.socios.length})` : ""}</summary>
+        <div className="socios-list">{e.socios.length > 0 ? e.socios.map((s, i) => <p key={i} className="static-value">{s}</p>) : <p className="static-value">Nenhum sócio informado.</p>}</div>
+      </details>
       <button type="button" className="primary danger" onClick={() => excluir(e.id)} disabled={excluindoId !== null}>{excluindoId === e.id ? "Excluindo…" : "Excluir esta empresa"}</button>
-    </article>)}</div>
+    </article>; })}</div>
   </div></div>;
 }
 
@@ -463,11 +569,35 @@ function Audit({ issues, setIssues, companies, setCompanies, perfis }: {
   const [corrigindo, setCorrigindo] = useState<Empresa | null>(null);
   const [duplicidade, setDuplicidade] = useState<Divergencia | null>(null);
   const types = ["Todos", ...Array.from(new Set(issues.map((d) => d.tipo)))];
+  const clusters = clustersDuplicidadePendente(issues);
+  const tamanhoPorRepresentante = new Map(clusters.map((c) => [c.representanteId, c.empresas]));
+  const representantesDuplicidade = new Set(clusters.map((c) => c.representanteId));
+  // Das divergências de Duplicidade Pendentes, só a linha "representante" de
+  // cada grupo aparece na tabela — as outras (mesmo grupo, outro par) ficam
+  // ocultas aqui, mas continuam existindo e resolvíveis via essa mesma linha
+  // (o modal abre o grupo inteiro, não só o par específico da linha).
+  const idsOcultosDuplicidade = new Set(
+    issues
+      .filter((i) => i.tipo === "Duplicidade" && i.status === "Pendente" && i.empresaRelacionada)
+      .map((i) => i.id)
+      .filter((id) => !representantesDuplicidade.has(id)),
+  );
   const filtered = issues
-    .filter((i) => (type === "Todos" || i.tipo === type) && (status === "Todos" || i.status === status))
+    .filter((i) => (type === "Todos" || i.tipo === type) && (status === "Todos" || i.status === status) && !idsOcultosDuplicidade.has(i.id))
     // Mais recentes primeiro — usa `resolvidoEm` quando existe (histórico de
     // tratadas), senão `detectadoEm` (ainda pendentes).
     .sort((a, b) => new Date(b.resolvidoEm ?? b.detectadoEm).getTime() - new Date(a.resolvidoEm ?? a.detectadoEm).getTime());
+
+  // Contagem dos cards de resumo: para "Duplicidade", conta grupos (não
+  // pares) entre os Pendentes, pra não inflar o número com C(N,2) pares do
+  // mesmo grupo — mesmo raciocínio da tabela.
+  const contarTipo = (t: string) => {
+    if (t !== "Duplicidade") return issues.filter((i) => i.tipo === t && (status === "Todos" || i.status === status)).length;
+    let total = 0;
+    if (status === "Todos" || status === "Pendente") total += clusters.length;
+    if (status !== "Pendente") total += issues.filter((i) => i.tipo === "Duplicidade" && i.status !== "Pendente" && (status === "Todos" || i.status === status)).length;
+    return total;
+  };
 
   const refetch = async (falhaParcial: string) => {
     try {
@@ -527,8 +657,8 @@ function Audit({ issues, setIssues, companies, setCompanies, perfis }: {
     await revalidarAuditoriaSilenciosa(setIssues);
   };
 
-  const handleDuplicidadeResolvida = async () => {
-    setDuplicidade(null);
+  const handleDuplicidadeResolvida = async (fechar: boolean) => {
+    if (fechar) setDuplicidade(null);
     try {
       const atualizadas = await listarEmpresas();
       setCompanies(atualizadas);
@@ -547,9 +677,9 @@ function Audit({ issues, setIssues, companies, setCompanies, perfis }: {
       </div>
     </section>
     {actionError && <div className="notice error"><p>{actionError}</p></div>}
-    <section className="audit-summary">{types.slice(1).map((t) => <article key={t}><span>{t === "CNPJ inválido" ? "#" : "!"}</span><strong>{issues.filter((i) => i.tipo === t && (status === "Todos" || i.status === status)).length}</strong><p>{t}</p></article>)}</section>
+    <section className="audit-summary">{types.slice(1).map((t) => <article key={t}><span>{t === "CNPJ inválido" ? "#" : "!"}</span><strong>{contarTipo(t)}</strong><p>{t}</p></article>)}</section>
     <section className="filters"><label>Tipo<select value={type} onChange={(e) => setType(e.target.value)}>{types.map((t) => <option key={t}>{t}</option>)}</select></label><label>Tratamento<select value={status} onChange={(e) => setStatus(e.target.value)}>{["Todos", "Pendente", "Revisado", "Ignorado"].map((s) => <option key={s}>{s}</option>)}</select></label></section>
-    <section className="panel table-wrap"><table className="audit-table"><thead><tr><th>Empresa</th><th>Ocorrência</th><th>Valor atual</th><th>Sugestão</th><th>Status</th><th>Ações</th></tr></thead><tbody>{filtered.map((i) => { const empresaDaLinha = companies.find((c) => c.id === i.empresaId); return <tr key={i.id}><td><strong>{i.empresa}</strong></td><td><Badge tone="neutral">{i.tipo}</Badge></td><td>{i.atual}{i.status === "Revisado" && i.sugerido && <><br /><small className="static-value">corrigido para: {i.sugerido}</small></>}</td><td>{i.sugerido || "—"}</td><td><Badge tone={i.status === "Pendente" ? "warning" : i.status === "Revisado" ? "success" : "neutral"}>{i.status}</Badge><br /><small className="static-value">{formatDataHoraBrasilia(i.resolvidoEm ?? i.detectadoEm)}</small></td><td className="actions">
+    <section className="panel table-wrap"><table className="audit-table"><thead><tr><th>Empresa</th><th>Ocorrência</th><th>Valor atual</th><th>Sugestão</th><th>Status</th><th>Ações</th></tr></thead><tbody>{filtered.map((i) => { const empresaDaLinha = companies.find((c) => c.id === i.empresaId); const tamanhoGrupo = tamanhoPorRepresentante.get(i.id); return <tr key={i.id}><td><strong>{i.empresa}</strong></td><td><Badge tone="neutral">{i.tipo}</Badge></td><td>{tamanhoGrupo && tamanhoGrupo > 2 ? `${tamanhoGrupo} cadastros com nome parecido entre si` : i.atual}{i.status === "Revisado" && i.sugerido && <><br /><small className="static-value">corrigido para: {i.sugerido}</small></>}</td><td>{i.sugerido || "—"}</td><td><Badge tone={i.status === "Pendente" ? "warning" : i.status === "Revisado" ? "success" : "neutral"}>{i.status}</Badge><br /><small className="static-value">{formatDataHoraBrasilia(i.resolvidoEm ?? i.detectadoEm)}</small></td><td className="actions">
       {i.status !== "Revisado" ? <>
         {i.tipo === "Duplicidade" && <button onClick={() => setDuplicidade(i)} disabled={updatingId === i.id}>Resolver duplicidade</button>}
         {TIPOS_CORRIGIVEIS_NO_CADASTRO.has(i.tipo) && <button onClick={() => empresaDaLinha && setCorrigindo(empresaDaLinha)} disabled={updatingId === i.id || !empresaDaLinha}>Corrigir cadastro</button>}
@@ -558,22 +688,67 @@ function Audit({ issues, setIssues, companies, setCompanies, perfis }: {
       </> : "—"}
     </td></tr>; })}</tbody></table>{filtered.length === 0 && <Empty title="Nenhuma ocorrência neste filtro" text="As divergências tratadas continuam disponíveis no histórico." />}</section>
     {corrigindo && <EmpresaEditModal empresa={corrigindo} perfis={perfis} onClose={() => setCorrigindo(null)} onSaved={handleCadastroCorrigido} />}
-    {duplicidade && <ResolverDuplicidade divergencia={duplicidade} companies={companies} onClose={() => setDuplicidade(null)} onResolved={handleDuplicidadeResolvida} />}
+    {duplicidade && <ResolverDuplicidade divergencia={duplicidade} issues={issues} companies={companies} onClose={() => setDuplicidade(null)} onResolved={handleDuplicidadeResolvida} />}
   </>;
 }
 
+type SegmentoTipo = "estado" | "porte" | "cnae" | "status" | "idade";
+
 function Analysis({ companies }: { companies: Empresa[] }) {
   const [state, setState] = useState("Todos"); const [size, setSize] = useState("Todos"); const [situation, setSituation] = useState("Todos"); const [search, setSearch] = useState("");
+  const [segmento, setSegmento] = useState<{ titulo: string; empresas: Empresa[] } | null>(null);
   const anoAtual = new Date().getFullYear();
   const filtered = companies.filter((c) => (state === "Todos" || c.estado === state) && (size === "Todos" || c.porte === size) && (situation === "Todos" || c.status === situation) && `${c.razaoSocial} ${c.cnae}`.toLowerCase().includes(search.toLowerCase()));
   const count = (key: keyof Empresa) => Object.entries(filtered.reduce((a, c) => ({ ...a, [String(c[key])]: (a[String(c[key])] || 0) + 1 }), {} as Record<string, number>)).map(([name, value]) => ({ name, value }));
   const stateData = count("estado").sort((a, b) => b.value - a.value).slice(0, 7); const sizeData = count("porte"); const cnaeData = count("cnae").sort((a, b) => b.value - a.value).slice(0, 5); const statusData = count("status");
   const anoAbertura = (c: Empresa) => (c.abertura ? new Date(c.abertura).getFullYear() : null);
   const ages = [{ name: "até 3 anos", value: filtered.filter((c) => { const a = anoAbertura(c); return a !== null && a >= anoAtual - 3; }).length }, { name: "4 a 8 anos", value: filtered.filter((c) => { const a = anoAbertura(c); return a !== null && a >= anoAtual - 8 && a < anoAtual - 3; }).length }, { name: "9 a 15 anos", value: filtered.filter((c) => { const a = anoAbertura(c); return a !== null && a >= anoAtual - 15 && a < anoAtual - 8; }).length }, { name: "mais de 15", value: filtered.filter((c) => { const a = anoAbertura(c); return a !== null && a < anoAtual - 15; }).length }];
+
+  const abrirSegmento = (tipo: SegmentoTipo, nome: string) => {
+    let empresas: Empresa[];
+    if (tipo === "idade") {
+      empresas = filtered.filter((c) => {
+        const a = anoAbertura(c);
+        if (a === null) return false;
+        if (nome === "até 3 anos") return a >= anoAtual - 3;
+        if (nome === "4 a 8 anos") return a >= anoAtual - 8 && a < anoAtual - 3;
+        if (nome === "9 a 15 anos") return a >= anoAtual - 15 && a < anoAtual - 8;
+        return a < anoAtual - 15;
+      });
+    } else {
+      empresas = filtered.filter((c) => String(c[tipo]) === nome);
+    }
+    setSegmento({ titulo: nome, empresas });
+  };
+
   return <>
     <section className="section-head"><div><h2>Composição da carteira</h2><p>Explore o perfil dos clientes cadastrados.</p></div><Badge tone="blue">{filtered.length} empresas</Badge></section>
     <section className="filters analysis-filters"><input aria-label="Buscar por empresa ou CNAE" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar empresa ou atividade" />{[[state, setState, ["Todos", ...Array.from(new Set(companies.map((c) => c.estado)))]], [size, setSize, ["Todos", ...Array.from(new Set(companies.map((c) => c.porte)))]], [situation, setSituation, ["Todos", "Ativa", "Suspensa", "Baixada"]]].map(([value, setter, options], i) => <select key={i} value={value as string} onChange={(e) => (setter as (v: string) => void)(e.target.value)}>{(options as string[]).map((o) => <option key={o}>{o}</option>)}</select>)}</section>
-    {filtered.length === 0 ? <Empty title="Sem empresas para analisar" text="Nenhum cadastro corresponde aos filtros selecionados." /> : <Suspense fallback={<div className="chart-grid-loading">Carregando gráficos…</div>}><section className="chart-grid"><ChartCard title="Empresas por estado"><BarVisual data={stateData} /></ChartCard><ChartCard title="Distribuição por porte"><PieVisual data={sizeData} /></ChartCard><ChartCard title="Principais CNAEs"><BarVisual data={cnaeData} /></ChartCard><ChartCard title="Situação cadastral"><PieVisual data={statusData} /></ChartCard><ChartCard title="Tempo de abertura"><BarVisual data={ages} /></ChartCard><article className="chart-card insight"><span>✦</span><h3>Leitura rápida</h3><p><strong>{filtered.filter((c) => c.status === "Ativa").length} empresas</strong> estão ativas. O perfil mais comum é <strong>{sizeData.sort((a,b) => b.value-a.value)[0]?.name}</strong>.</p><small>Dados atualizados a partir dos cadastros da carteira.</small></article></section></Suspense>}
+    {filtered.length === 0 ? <Empty title="Sem empresas para analisar" text="Nenhum cadastro corresponde aos filtros selecionados." /> : <Suspense fallback={<div className="chart-grid-loading">Carregando gráficos…</div>}><section className="chart-grid">
+      <ChartCard title="Empresas por estado" hint="Clique para detalhar"><BarVisual data={stateData} onSelect={(nome) => abrirSegmento("estado", nome)} /></ChartCard>
+      <ChartCard title="Distribuição por porte" hint="Clique para detalhar"><PieVisual data={sizeData} onSelect={(nome) => abrirSegmento("porte", nome)} /></ChartCard>
+      <ChartCard title="Principais CNAEs" hint="Passe o mouse e clique para ver"><PieVisual data={cnaeData} legend={false} onSelect={(nome) => abrirSegmento("cnae", nome)} /></ChartCard>
+      <ChartCard title="Situação cadastral" hint="Clique para detalhar"><PieVisual data={statusData} onSelect={(nome) => abrirSegmento("status", nome)} /></ChartCard>
+      <ChartCard title="Tempo de abertura" hint="Clique para detalhar"><BarVisual data={ages} onSelect={(nome) => abrirSegmento("idade", nome)} /></ChartCard>
+      <article className="chart-card insight"><span>✦</span><h3>Leitura rápida</h3><p><strong>{filtered.filter((c) => c.status === "Ativa").length} empresas</strong> estão ativas. O perfil mais comum é <strong>{sizeData.sort((a,b) => b.value-a.value)[0]?.name}</strong>.</p><small>Dados atualizados a partir dos cadastros da carteira.</small></article>
+    </section></Suspense>}
+    {segmento && <SegmentoModal titulo={segmento.titulo} empresas={segmento.empresas} onClose={() => setSegmento(null)} />}
   </>;
 }
-function ChartCard({ title, children }: { title: string; children: ReactNode }) { return <article className="chart-card"><h3>{title}</h3><div className="chart">{children}</div></article>; }
+function ChartCard({ title, children, hint }: { title: string; children: ReactNode; hint?: string }) { return <article className="chart-card"><h3>{title}{hint && <small className="chart-hint">{hint}</small>}</h3><div className="chart">{children}</div></article>; }
+
+function SegmentoModal({ titulo, empresas, onClose }: { titulo: string; empresas: Empresa[]; onClose: () => void }) {
+  return <div className="modal-layer" role="dialog" aria-modal="true" aria-label={`Empresas — ${titulo}`}><div className="modal segmento-modal"><button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button><h2>{titulo}</h2><p>{empresas.length} {empresas.length === 1 ? "empresa encontrada" : "empresas encontradas"}</p>
+    {empresas.length === 0 ? <Empty title="Nenhuma empresa aqui" text="Não há cadastros correspondentes a este grupo." /> : <div className="segmento-list">{empresas.map((e) => <article key={e.id} className="segmento-card">
+      <div className="segmento-card-head"><strong>{e.razaoSocial}</strong><Badge tone={statusTone(e.status)}>{e.status}</Badge></div>
+      <p className="segmento-card-sub">{e.fantasia} · CNPJ {e.cnpj}</p>
+      <div className="segmento-card-grid">
+        <div><span>Localidade</span><strong>{e.cidade}/{e.estado}</strong></div>
+        <div><span>Porte</span><strong>{e.porte}</strong></div>
+        <div><span>CNAE</span><strong>{e.cnaeCodigo ? `${e.cnaeCodigo} · ${e.cnae}` : e.cnae || "Não informado"}</strong></div>
+        <div><span>Responsável</span><strong>{e.responsavel || "—"}</strong></div>
+        <div className="full"><span>Endereço</span><strong>{e.endereco || "Não informado"}</strong></div>
+      </div>
+    </article>)}</div>}
+  </div></div>;
+}

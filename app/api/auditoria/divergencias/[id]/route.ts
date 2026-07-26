@@ -1,5 +1,6 @@
 import { createSupabaseRouteHandlerClient } from "@/lib/supabase/server";
 import { buscarDivergenciaCompletaPorId, paraShapeFrontend } from "@/lib/divergencias";
+import { consultarCNPJComCache } from "@/lib/cnpj-cache";
 
 type DivergenciaPatchPayload = {
   acao?: "revisar" | "ignorar" | "aplicar_sugestao";
@@ -66,7 +67,93 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 
   const divergencia = divergenciaAtual as DivergenciaResumo;
 
-  if (acao === "aplicar_sugestao") {
+  if (acao === "aplicar_sugestao" && divergencia.tipo === "Dados ausentes") {
+    if (divergencia.sugerido === null) {
+      return applySetCookies(
+        Response.json({ error: "Esta divergência não tem sugestão para aplicar." }, { status: 400 }),
+      );
+    }
+
+    // "Dados ausentes" pode ter mais de um campo faltando ao mesmo tempo
+    // (endereço, CNAE, porte) — diferente de "Razão social"/"Endereço" (um
+    // valor sugerido, um campo), aqui reconsultamos o cache (mesma função
+    // usada pela auditoria, TTL de 24h — não bate na BrasilAPI de novo na
+    // maioria dos casos) e aplicamos, de uma vez, todos os campos que
+    // estiverem vazios NA EMPRESA e preenchidos NO CACHE. Evita parsear de
+    // volta o texto de exibição de `sugerido` (frágil: descrição de CNAE
+    // pode conter os mesmos separadores usados para juntar múltiplos campos).
+    const { data: empresaAtualDados, error: empresaBuscarError } = await supabase
+      .from("empresas")
+      .select("cnpj, endereco, cnae_codigo, porte")
+      .eq("id", divergencia.empresa_id)
+      .maybeSingle();
+
+    if (empresaBuscarError || !empresaAtualDados) {
+      return applySetCookies(
+        Response.json({ error: "Não foi possível carregar a empresa para aplicar a sugestão." }, { status: 500 }),
+      );
+    }
+
+    const empresaDados = empresaAtualDados as { cnpj: string; endereco: string; cnae_codigo: string; porte: string };
+
+    let dadosBrasilAPI;
+    try {
+      dadosBrasilAPI = await consultarCNPJComCache(supabase, empresaDados.cnpj);
+    } catch {
+      return applySetCookies(
+        Response.json({ error: "Não foi possível reconsultar os dados da empresa para aplicar a sugestão." }, { status: 502 }),
+      );
+    }
+
+    const atualizacoes: Record<string, string> = {};
+    if (empresaDados.endereco.trim() === "" && dadosBrasilAPI.endereco) atualizacoes.endereco = dadosBrasilAPI.endereco;
+    if (empresaDados.cnae_codigo.trim() === "" && dadosBrasilAPI.cnaeCodigo) {
+      atualizacoes.cnae_codigo = dadosBrasilAPI.cnaeCodigo;
+      atualizacoes.cnae_descricao = dadosBrasilAPI.cnaeDescricao;
+    }
+    if (empresaDados.porte.trim() === "" && dadosBrasilAPI.porte) atualizacoes.porte = dadosBrasilAPI.porte;
+
+    if (Object.keys(atualizacoes).length === 0) {
+      return applySetCookies(
+        Response.json({ error: "Nenhum dado novo disponível para aplicar — revalide a carteira e tente de novo." }, { status: 400 }),
+      );
+    }
+
+    const { data: empresaAtualizada, error: empresaError } = await supabase
+      .from("empresas")
+      .update({ ...atualizacoes, atualizado_em: new Date().toISOString() })
+      .eq("id", divergencia.empresa_id)
+      .select("id")
+      .maybeSingle();
+
+    if (empresaError || !empresaAtualizada) {
+      return applySetCookies(
+        Response.json({ error: "Não foi possível atualizar a empresa com a sugestão." }, { status: 500 }),
+      );
+    }
+
+    const { data: divergenciaResolvida, error: resolverError } = await supabase
+      .from("divergencias")
+      .update({ status: "Revisado", resolvido_em: new Date().toISOString() })
+      .eq("id", id)
+      .select("id")
+      .maybeSingle();
+
+    if (resolverError || !divergenciaResolvida) {
+      // Compensação: os campos já foram preenchidos, mas marcar a
+      // divergência como resolvida falhou — reverte pro vazio (era o valor
+      // anterior, já que só preenchemos campos que estavam vazios) pra não
+      // deixar a sugestão aplicada silenciosamente sem que a divergência
+      // reflita isso.
+      const reversao: Record<string, string> = {};
+      for (const campo of Object.keys(atualizacoes)) reversao[campo] = "";
+      await supabase.from("empresas").update({ ...reversao, atualizado_em: new Date().toISOString() }).eq("id", divergencia.empresa_id);
+
+      return applySetCookies(
+        Response.json({ error: "Não foi possível marcar a divergência como resolvida." }, { status: 500 }),
+      );
+    }
+  } else if (acao === "aplicar_sugestao") {
     const coluna = CAMPO_POR_TIPO[divergencia.tipo];
 
     if (!coluna || divergencia.sugerido === null) {

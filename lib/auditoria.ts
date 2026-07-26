@@ -72,26 +72,50 @@ const CAMPOS_OBRIGATORIOS: { chave: keyof EmpresaParaAuditoria; rotulo: string }
   { chave: "porte", rotulo: "Porte" },
 ];
 
-export function avaliarDadosAusentes(empresa: EmpresaParaAuditoria): DivergenciaDetectada | null {
-  const ausentes = CAMPOS_OBRIGATORIOS.filter(({ chave }) => empresa[chave].trim() === "").map(({ rotulo }) => rotulo);
+/** Valor do campo `chave` na resposta cacheada da API, pronto pra virar sugestão — string vazia quando o provedor também não tem esse dado. */
+function valorSugeridoParaCampo(chave: keyof EmpresaParaAuditoria, dadosBrasilAPI: EmpresaBrasilAPI): string {
+  if (chave === "endereco") return dadosBrasilAPI.endereco;
+  if (chave === "cnaeCodigo") return [dadosBrasilAPI.cnaeCodigo, dadosBrasilAPI.cnaeDescricao].filter(Boolean).join(" · ");
+  if (chave === "porte") return dadosBrasilAPI.porte;
+  return "";
+}
 
-  if (ausentes.length === 0) {
+// `dadosBrasilAPI` só chega preenchido quando o chamador já reconsultou a API
+// para esta empresa nesta execução (regras externas, ver `app/api/auditoria/
+// executar/route.ts`) — nunca é buscado aqui, esta função continua pura/sem
+// I/O. Sem `dadosBrasilAPI` (rodada interna, sempre executada após salvar/
+// editar) a divergência é reportada sem sugestão; o usuário só ganha "Aplicar
+// sugestão" depois de uma "Revalidar carteira" que tenha encontrado o dado
+// que faltava no cache/provedor.
+export function avaliarDadosAusentes(empresa: EmpresaParaAuditoria, dadosBrasilAPI?: EmpresaBrasilAPI | null): DivergenciaDetectada | null {
+  const camposAusentes = CAMPOS_OBRIGATORIOS.filter(({ chave }) => empresa[chave].trim() === "");
+
+  if (camposAusentes.length === 0) {
     return null;
   }
 
-  const sufixo = ausentes.length === 1 ? "não informado" : "não informados";
+  const sufixo = camposAusentes.length === 1 ? "não informado" : "não informados";
+
+  let sugerido: string | null = null;
+  if (dadosBrasilAPI) {
+    const partes = camposAusentes
+      .map(({ chave, rotulo }) => ({ rotulo, valor: valorSugeridoParaCampo(chave, dadosBrasilAPI) }))
+      .filter(({ valor }) => valor !== "")
+      .map(({ rotulo, valor }) => `${rotulo}: ${valor}`);
+    sugerido = partes.length > 0 ? partes.join("; ") : null;
+  }
 
   return {
     empresaId: empresa.id,
     tipo: "Dados ausentes",
-    atual: `${ausentes.join(", ")} ${sufixo}`,
-    sugerido: null,
+    atual: `${camposAusentes.map(({ rotulo }) => rotulo).join(", ")} ${sufixo}`,
+    sugerido,
   };
 }
 
-/** Roda as 3 regras internas (sem I/O) para uma empresa. */
+/** Roda as 2 regras internas de campo único (sem I/O) para uma empresa — "Dados ausentes" corre à parte (ver `avaliarDadosAusentes`), porque pode ou não ter `dadosBrasilAPI` disponível dependendo da execução. */
 export function avaliarRegrasInternas(empresa: EmpresaParaAuditoria): DivergenciaDetectada[] {
-  return [avaliarCNPJInvalido(empresa), avaliarSituacaoIrregular(empresa), avaliarDadosAusentes(empresa)].filter(
+  return [avaliarCNPJInvalido(empresa), avaliarSituacaoIrregular(empresa)].filter(
     (divergencia): divergencia is DivergenciaDetectada => divergencia !== null,
   );
 }

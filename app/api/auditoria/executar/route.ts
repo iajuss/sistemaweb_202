@@ -3,6 +3,7 @@ import { EMPRESA_SELECT, type EmpresaRow } from "@/lib/empresas";
 import {
   avaliarRegrasInternas,
   avaliarRegrasExternas,
+  avaliarDadosAusentes,
   type EmpresaParaAuditoria,
   type DivergenciaDetectada,
 } from "@/lib/auditoria";
@@ -16,8 +17,10 @@ type ExecutarAuditoriaPayload = {
 type DivergenciaRow = {
   id: string;
   empresa_id: string;
+  empresa_relacionada_id: string | null;
   tipo: string;
   atual: string;
+  sugerido: string | null;
   status: string;
   detectado_em: string;
 };
@@ -39,13 +42,23 @@ function chaveDivergencia(empresaId: string, tipo: string): string {
 // mais recente é suficiente. "Duplicidade" é a exceção: uma empresa pode ter
 // várias divergências de Duplicidade simultâneas e independentes (uma por
 // empresa parecida — ex.: C parecida com A e com B ao mesmo tempo), então
-// para esse tipo a chave de idempotência inclui `atual` (que descreve o
-// outro lado do par) — cada par é tratado como uma ocorrência própria, sem
-// interferir na idempotência dos outros pares da mesma empresa. Os outros 5
-// tipos continuam com a chave antiga (sem `atual`) — não mexer nisso.
-function chaveIdempotencia(empresaId: string, tipo: string, atual: string): string {
+// para esse tipo a chave de idempotência precisa identificar o OUTRO lado do
+// par de forma inequívoca — `identificadorPar` deve ser o id da outra
+// empresa (`empresaRelacionadaId`), nunca o texto `atual` ("Possível
+// duplicidade com <razão social>"): quando duas ou mais empresas parecidas
+// têm a MESMA razão social (ex.: várias filiais/cadastros do mesmo banco),
+// esse texto fica idêntico para pares diferentes e colidiria na mesma
+// chave. Quando a outra empresa do par JÁ FOI EXCLUÍDA, `empresaRelacionadaId`
+// é null (FK "on delete set null") — nesse caso o chamador deve passar o
+// `id` da própria linha de divergência como identificador (nunca `atual`):
+// se duas linhas órfãs distintas (parceiros diferentes, ambos já excluídos)
+// tiverem o mesmo texto `atual`, usar `atual` como fallback as colidiria de
+// novo na mesma chave, e uma das duas nunca mais seria avaliada para
+// resolução automática — ficando "Pendente" para sempre. Os outros 5 tipos
+// continuam com a chave antiga (sem essa distinção) — não mexer nisso.
+function chaveIdempotencia(empresaId: string, tipo: string, identificadorPar: string): string {
   return tipo === "Duplicidade"
-    ? `${chaveDivergencia(empresaId, tipo)}::${atual}`
+    ? `${chaveDivergencia(empresaId, tipo)}::${identificadorPar}`
     : chaveDivergencia(empresaId, tipo);
 }
 
@@ -134,11 +147,22 @@ export async function POST(request: Request) {
 
   for (const empresa of empresas) {
     detectadas.push(...avaliarRegrasInternas(empresa));
-    // Regras internas (CNPJ inválido, Situação irregular, Dados ausentes)
-    // rodam sempre, incondicionalmente, para toda empresa — sempre avaliadas.
+    // Regras internas (CNPJ inválido, Situação irregular) rodam sempre,
+    // incondicionalmente, para toda empresa — sempre avaliadas.
     chavesAvaliadasNestaExecucao.add(chaveDivergencia(empresa.id, "CNPJ inválido"));
     chavesAvaliadasNestaExecucao.add(chaveDivergencia(empresa.id, "Situação irregular"));
-    chavesAvaliadasNestaExecucao.add(chaveDivergencia(empresa.id, "Dados ausentes"));
+
+    // "Dados ausentes" só entra aqui (sem sugestão) quando esta execução NÃO
+    // vai reconsultar a BrasilAPI — se vai (`incluirRegrasExternas`), ela é
+    // avaliada de novo mais abaixo, desta vez com os dados cacheados/
+    // reconsultados em mãos, pra poder sugerir o valor que falta (CNAE,
+    // endereço, porte). Avaliar as duas vezes na mesma execução geraria duas
+    // detecções conflitantes pra mesma empresa/tipo neste mesmo lote.
+    if (!incluirRegrasExternas) {
+      const dadosAusentes = avaliarDadosAusentes(empresa);
+      if (dadosAusentes) detectadas.push(dadosAusentes);
+      chavesAvaliadasNestaExecucao.add(chaveDivergencia(empresa.id, "Dados ausentes"));
+    }
   }
 
   // Duplicidade — roda 1x para o escritório inteiro. Isolada num try/catch:
@@ -195,10 +219,13 @@ export async function POST(request: Request) {
       try {
         const dadosBrasilAPI = await consultarCNPJComCache(supabase, empresa.cnpj);
         detectadas.push(...avaliarRegrasExternas(empresa, dadosBrasilAPI));
-        // Consulta OK: razão social e endereço desta empresa foram de fato
-        // reavaliados contra a BrasilAPI nesta execução.
+        const dadosAusentes = avaliarDadosAusentes(empresa, dadosBrasilAPI);
+        if (dadosAusentes) detectadas.push(dadosAusentes);
+        // Consulta OK: razão social, endereço e dados ausentes desta empresa
+        // foram de fato reavaliados contra a BrasilAPI/cache nesta execução.
         chavesAvaliadasNestaExecucao.add(chaveDivergencia(empresa.id, "Razão social"));
         chavesAvaliadasNestaExecucao.add(chaveDivergencia(empresa.id, "Endereço"));
+        chavesAvaliadasNestaExecucao.add(chaveDivergencia(empresa.id, "Dados ausentes"));
       } catch (err) {
         // Uma consulta individual falhando (404/429/502) não pode abortar
         // a rotina inteira — a empresa é pulada e o erro é apenas logado.
@@ -217,7 +244,7 @@ export async function POST(request: Request) {
   // --- Idempotência contra a tabela `divergencias` ------------------------
   const { data: divergenciasExistentesData, error: divergenciasExistentesError } = await supabase
     .from("divergencias")
-    .select("id, empresa_id, tipo, atual, status, detectado_em");
+    .select("id, empresa_id, empresa_relacionada_id, tipo, atual, sugerido, status, detectado_em");
 
   if (divergenciasExistentesError) {
     return applySetCookies(
@@ -228,12 +255,14 @@ export async function POST(request: Request) {
   // Última linha conhecida por chave de idempotência — histórico preserva
   // linhas antigas, então precisamos da mais recente por `detectado_em`
   // para decidir o que fazer com cada divergência detectada nesta execução.
-  // Para "Duplicidade" a chave inclui `atual` (ver `chaveIdempotencia`), então
-  // cada par empresa-parceiro tem sua própria entrada nesta Map, em vez de
-  // todas as duplicidades da empresa colidirem numa única entrada.
+  // Para "Duplicidade" a chave inclui o id da outra empresa do par (ver
+  // `chaveIdempotencia`), então cada par empresa-parceiro tem sua própria
+  // entrada nesta Map. Quando o parceiro já foi excluído (`empresa_relacionada_id`
+  // null), usamos o `id` da própria linha — nunca `atual` — para não colidir
+  // com outra linha órfã de texto idêntico (ver comentário em `chaveIdempotencia`).
   const ultimaPorPar = new Map<string, DivergenciaRow>();
   for (const row of (divergenciasExistentesData ?? []) as DivergenciaRow[]) {
-    const chave = chaveIdempotencia(row.empresa_id, row.tipo, row.atual);
+    const chave = chaveIdempotencia(row.empresa_id, row.tipo, row.empresa_relacionada_id ?? row.id);
     const atual = ultimaPorPar.get(chave);
     if (!atual || new Date(row.detectado_em) > new Date(atual.detectado_em)) {
       ultimaPorPar.set(chave, row);
@@ -249,22 +278,41 @@ export async function POST(request: Request) {
     sugerido: string | null;
     empresa_relacionada_id: string | null;
   }[] = [];
+  // Quando o valor/sugestão muda e a linha anterior ainda estava Pendente,
+  // ela é "superada" pela nova detecção (marcada Revisado) — sem isso, as
+  // duas ficariam Pendente ao mesmo tempo dizendo a mesma coisa (ex.: "CNAE
+  // não informado" sem sugestão E com sugestão simultaneamente), parecendo
+  // uma pendência duplicada pro usuário. Só supera quem ainda estava
+  // Pendente: uma linha que o usuário já Ignorou/Revisou não é mexida.
+  const idsParaSuperar: string[] = [];
 
   for (const divergencia of detectadas) {
-    const chave = chaveIdempotencia(divergencia.empresaId, divergencia.tipo, divergencia.atual);
+    // `divergencia.empresaRelacionadaId` sempre vem preenchido para
+    // "Duplicidade" aqui (vem direto do par retornado pelo RPC, que só
+    // existe entre empresas que ainda existem) — o fallback pra `atual` é
+    // só defensivo, nunca deveria ser exercido na prática.
+    const chave = chaveIdempotencia(divergencia.empresaId, divergencia.tipo, divergencia.empresaRelacionadaId ?? divergencia.atual);
     chavesDetectadasNestaExecucao.add(chave);
 
     const existente = ultimaPorPar.get(chave);
 
-    if (existente && existente.atual === divergencia.atual) {
-      // Valor não mudou desde a última detecção: mantém o status que o
-      // usuário já deu (Pendente/Revisado/Ignorado), não faz nada.
+    if (existente && existente.atual === divergencia.atual && existente.sugerido === divergencia.sugerido) {
+      // Nem o valor nem a sugestão mudaram desde a última detecção: mantém
+      // o status que o usuário já deu (Pendente/Revisado/Ignorado), não faz
+      // nada. A comparação inclui `sugerido` porque "Dados ausentes" pode
+      // ganhar uma sugestão (CNAE/endereço/porte do cache) numa execução
+      // posterior sem o texto `atual` mudar — sem checar `sugerido` aqui,
+      // essa sugestão nova nunca seria persistida.
       continue;
     }
 
-    // Par novo, ou `atual` mudou desde a última detecção: insere uma nova
-    // linha Pendente (se `atual` mudou, a linha anterior é preservada
-    // intacta — não é sobrescrita).
+    if (existente && existente.id && existente.status === "Pendente") {
+      idsParaSuperar.push(existente.id);
+    }
+
+    // Par novo, ou `atual`/`sugerido` mudou desde a última detecção: insere
+    // uma nova linha Pendente (a linha anterior vira Revisado acima, mas
+    // continua intacta no histórico — não é sobrescrita nem apagada).
     paraInserir.push({
       escritorio_id: escritorioId,
       empresa_id: divergencia.empresaId,
@@ -282,11 +330,26 @@ export async function POST(request: Request) {
     ultimaPorPar.set(chave, {
       id: "",
       empresa_id: divergencia.empresaId,
+      empresa_relacionada_id: divergencia.empresaRelacionadaId ?? null,
       tipo: divergencia.tipo,
       atual: divergencia.atual,
+      sugerido: divergencia.sugerido,
       status: "Pendente",
       detectado_em: new Date().toISOString(),
     });
+  }
+
+  if (idsParaSuperar.length > 0) {
+    const { error: superarError } = await supabase
+      .from("divergencias")
+      .update({ status: "Revisado", resolvido_em: new Date().toISOString() })
+      .in("id", idsParaSuperar);
+
+    if (superarError) {
+      return applySetCookies(
+        Response.json({ error: "Não foi possível atualizar divergências superadas por uma nova detecção." }, { status: 500 }),
+      );
+    }
   }
 
   if (paraInserir.length > 0) {
