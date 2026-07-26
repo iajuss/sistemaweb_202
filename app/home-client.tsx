@@ -3,9 +3,9 @@
 import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
-  consultarCNPJ, executarAuditoria, feriadosNacionais,
-  listarDivergencias, listarEmpresas, listarPerfis, listarTarefas, salvarEmpresa, tratarDivergencia,
-  type Divergencia, type Empresa, type Tarefa,
+  atualizarModeloRecorrencia, atualizarTarefa, consultarCNPJ, criarModeloRecorrencia, criarTarefa, executarAuditoria,
+  listarDivergencias, listarEmpresas, listarModelosRecorrencia, listarPerfis, listarTarefas, salvarEmpresa, tratarDivergencia,
+  type Divergencia, type Empresa, type ModeloRecorrencia, type Periodicidade, type Tarefa,
 } from "../src/services/portfolio";
 
 type View = "Visão geral" | "Onboarding" | "Auditoria" | "Análise" | "Calendário";
@@ -50,7 +50,7 @@ export function HomeClient({ userName }: { userName: string }) {
     view === "Visão geral" ? <Overview companies={companies} issues={issues} tasks={tasks} go={setView} /> :
     view === "Onboarding" ? <Onboarding companies={companies} setCompanies={setCompanies} perfis={perfis} userName={userName} /> :
     view === "Auditoria" ? <Audit issues={issues} setIssues={setIssues} /> :
-    view === "Análise" ? <Analysis companies={companies} /> : <Calendar tasks={tasks} setTasks={setTasks} companies={companies} />
+    view === "Análise" ? <Analysis companies={companies} /> : <Calendar tasks={tasks} setTasks={setTasks} companies={companies} perfis={perfis} />
   );
 
   return <main className="app-shell">
@@ -219,15 +219,171 @@ function ChartCard({ title, children }: { title: string; children: ReactNode }) 
 function BarVisual({ data }: { data: { name: string; value: number }[] }) { return <ResponsiveContainer width="100%" height="100%"><BarChart data={data} layout="vertical" margin={{ left: 6, right: 12 }}><XAxis type="number" hide /><YAxis type="category" dataKey="name" width={96} tick={{ fontSize: 11, fill: "#617179" }} axisLine={false} tickLine={false} /><Tooltip cursor={{ fill: "#f2f7f7" }} /><Bar dataKey="value" fill="#2d6478" radius={[0, 5, 5, 0]} barSize={14} /></BarChart></ResponsiveContainer>; }
 function PieVisual({ data }: { data: { name: string; value: number }[] }) { return <div className="pie-layout"><ResponsiveContainer width="55%" height="100%"><PieChart><Pie data={data} dataKey="value" innerRadius={42} outerRadius={72} paddingAngle={3}>{data.map((_, i) => <Cell key={i} fill={cores[i % cores.length]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer><div className="legend">{data.map((d, i) => <p key={d.name}><i style={{ background: cores[i % cores.length] }} />{d.name}<strong>{d.value}</strong></p>)}</div></div>; }
 
-function Calendar({ tasks, setTasks, companies }: { tasks: Tarefa[]; setTasks: (tasks: Tarefa[]) => void; companies: Empresa[] }) {
-  const [mode, setMode] = useState<"month" | "list">("month"); const [responsible, setResponsible] = useState("Todos"); const [open, setOpen] = useState(false); const [draft, setDraft] = useState({ titulo: "", empresa: companies[0]?.fantasia || "", responsavel: "Mariana Costa", vencimento: "2026-08-10" });
-  const people = ["Todos", ...Array.from(new Set(tasks.map((t) => t.responsavel)))]; const shown = tasks.filter((t) => responsible === "Todos" || t.responsavel === responsible);
-  const add = (e: FormEvent) => { e.preventDefault(); setTasks([{ id: Date.now(), ...draft, tipo: "Contábil", status: "Pendente" }, ...tasks]); setOpen(false); };
-  const monthDays = Array.from({ length: 31 }, (_, i) => i + 1);
+const MESES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa[]; setTasks: (tasks: Tarefa[]) => void; companies: Empresa[]; perfis: { id: string; nome: string }[] }) {
+  const hoje = new Date();
+  const ano = hoje.getFullYear();
+  const mesIndex = hoje.getMonth(); // 0-11
+  const mesISO = `${ano}-${pad2(mesIndex + 1)}`;
+  const mesLabel = `${MESES_PT[mesIndex]} de ${ano}`;
+  const diasNoMes = new Date(ano, mesIndex + 1, 0).getDate();
+  const primeiroDiaSemana = new Date(ano, mesIndex, 1).getDay(); // 0=Dom
+  const monthDays = Array.from({ length: diasNoMes }, (_, i) => i + 1);
+  const dataHojeISO = `${ano}-${pad2(mesIndex + 1)}-${pad2(hoje.getDate())}`;
+
+  const [mode, setMode] = useState<"month" | "list">("month");
+  const [responsible, setResponsible] = useState("Todos");
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [taskError, setTaskError] = useState("");
+  const [concluindoId, setConcluindoId] = useState<string | null>(null);
+  const [draft, setDraft] = useState({ titulo: "", empresaId: companies[0]?.id ?? "", responsavelId: perfis[0]?.id ?? "", vencimento: dataHojeISO });
+
+  const [modelos, setModelos] = useState<ModeloRecorrencia[]>([]);
+  const [modelosCarregados, setModelosCarregados] = useState(false);
+  const [modeloOpen, setModeloOpen] = useState(false);
+  const [modeloSaving, setModeloSaving] = useState(false);
+  const [modeloError, setModeloError] = useState("");
+  const [atualizandoModeloId, setAtualizandoModeloId] = useState<string | null>(null);
+  const [modeloDraft, setModeloDraft] = useState({ titulo: "", tipo: "Fiscal", periodicidade: "mensal" as Periodicidade, diaReferencia: 10, empresaId: companies[0]?.id ?? "", responsavelId: perfis[0]?.id ?? "" });
+
+  useEffect(() => {
+    listarModelosRecorrencia()
+      .then((dados) => { setModelos(dados); setModelosCarregados(true); })
+      .catch(() => setModelosCarregados(true));
+  }, []);
+
+  const people = ["Todos", ...Array.from(new Set(perfis.map((p) => p.nome)))];
+  const shown = tasks.filter((t) => responsible === "Todos" || t.responsavel === responsible);
+
+  const refetchTasks = async (falhaParcial: string) => {
+    try {
+      const atualizadas = await listarTarefas();
+      setTasks(atualizadas);
+    } catch {
+      // A tarefa já foi persistida no passo anterior — só a atualização da
+      // lista falhou. Não reusar a mensagem de erro da ação, mesmo cuidado
+      // do `save()` do Onboarding.
+      setTaskError(falhaParcial);
+    }
+  };
+
+  const add = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!draft.empresaId) {
+      setTaskError("Selecione uma empresa.");
+      return;
+    }
+    setSaving(true); setTaskError("");
+    try {
+      await criarTarefa({ titulo: draft.titulo, tipo: "Contábil", empresaId: draft.empresaId, responsavelId: draft.responsavelId || null, vencimento: draft.vencimento });
+    } catch (error) {
+      const bruta = error instanceof Error ? error.message : "Não foi possível criar a tarefa";
+      setTaskError(`${semPontoFinal(bruta)}. Tente novamente.`);
+      setSaving(false);
+      return;
+    }
+    await refetchTasks("Tarefa criada, mas não foi possível atualizar a lista. Atualize a página.");
+    setSaving(false);
+    setOpen(false);
+  };
+
+  const concluir = async (id: string) => {
+    setConcluindoId(id); setTaskError("");
+    try {
+      await atualizarTarefa(id, { status: "Concluída" });
+    } catch (error) {
+      const bruta = error instanceof Error ? error.message : "Não foi possível concluir a tarefa";
+      setTaskError(`${semPontoFinal(bruta)}. Tente novamente.`);
+      setConcluindoId(null);
+      return;
+    }
+    await refetchTasks("Tarefa concluída, mas não foi possível atualizar a lista. Atualize a página.");
+    setConcluindoId(null);
+  };
+
+  const refetchModelos = async (falhaParcial: string) => {
+    try {
+      const atualizados = await listarModelosRecorrencia();
+      setModelos(atualizados);
+    } catch {
+      setModeloError(falhaParcial);
+    }
+  };
+
+  const criarModelo = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!modeloDraft.empresaId) {
+      setModeloError("Selecione uma empresa.");
+      return;
+    }
+    setModeloSaving(true); setModeloError("");
+    try {
+      await criarModeloRecorrencia({
+        titulo: modeloDraft.titulo,
+        tipo: modeloDraft.tipo,
+        periodicidade: modeloDraft.periodicidade,
+        diaReferencia: modeloDraft.diaReferencia,
+        empresaId: modeloDraft.empresaId,
+        responsavelId: modeloDraft.responsavelId || null,
+      });
+    } catch (error) {
+      const bruta = error instanceof Error ? error.message : "Não foi possível criar o modelo de recorrência";
+      setModeloError(`${semPontoFinal(bruta)}. Tente novamente.`);
+      setModeloSaving(false);
+      return;
+    }
+    await refetchModelos("Modelo criado, mas não foi possível atualizar a lista. Atualize a página.");
+    setModeloSaving(false);
+    setModeloOpen(false);
+  };
+
+  const desativarModelo = async (id: string) => {
+    setAtualizandoModeloId(id); setModeloError("");
+    try {
+      await atualizarModeloRecorrencia(id, { ativo: false });
+    } catch (error) {
+      const bruta = error instanceof Error ? error.message : "Não foi possível desativar o modelo";
+      setModeloError(`${semPontoFinal(bruta)}. Tente novamente.`);
+      setAtualizandoModeloId(null);
+      return;
+    }
+    await refetchModelos("Modelo desativado, mas não foi possível atualizar a lista. Atualize a página.");
+    setAtualizandoModeloId(null);
+  };
+
+  const maxDiaReferencia = modeloDraft.periodicidade === "semanal" ? 7 : 31;
+
   return <>
-    <section className="section-head"><div><h2>Calendário contábil</h2><p>Agosto de 2026 · obrigações e rotinas da carteira.</p></div><button className="primary" onClick={() => setOpen(true)}>+ Nova tarefa</button></section>
+    <section className="section-head"><div><h2>Calendário contábil</h2><p>{mesLabel} · obrigações e rotinas da carteira.</p></div><button className="primary" onClick={() => setOpen(true)}>+ Nova tarefa</button></section>
+    {taskError && <div className="notice error"><p>{taskError}</p></div>}
     <section className="calendar-toolbar"><div className="tabs"><button className={mode === "month" ? "selected" : ""} onClick={() => setMode("month")}>Calendário</button><button className={mode === "list" ? "selected" : ""} onClick={() => setMode("list")}>Lista</button></div><label>Responsável <select value={responsible} onChange={(e) => setResponsible(e.target.value)}>{people.map((p) => <option key={p}>{p}</option>)}</select></label></section>
-    {mode === "month" ? <section className="calendar"><div className="weekdays">{["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((d) => <span key={d}>{d}</span>)}</div><div className="day-grid">{Array.from({ length: 6 }, (_, i) => <div className="day muted" key={`blank-${i}`} />)}{monthDays.map((day) => { const date = `2026-08-${String(day).padStart(2, "0")}`; const items = shown.filter((t) => t.vencimento === date); const holiday = feriadosNacionais.includes(date); return <div className={`day ${holiday ? "holiday" : ""}`} key={day}><span>{day}</span>{holiday && <small>Feriado</small>}{items.map((t) => <button className={`calendar-task ${t.status === "Atrasada" ? "late" : ""}`} key={t.id} title={`${t.empresa} · ${t.responsavel}`}>{t.titulo}</button>)}</div>; })}</div></section> : <section className="panel list-tasks">{shown.map((t) => <div className="task-line" key={t.id}><time>{formatDate(t.vencimento)}</time><div><strong>{t.titulo}</strong><small>{t.empresa} · {t.responsavel} · {t.tipo}</small></div>{feriadosNacionais.includes(t.vencimento) && <Badge tone="warning">Feriado</Badge>}<Badge tone={t.status === "Atrasada" ? "danger" : t.status === "Concluída" ? "success" : "blue"}>{t.status}</Badge></div>)}</section>}
-    {open && <div className="modal-layer" role="dialog" aria-modal="true" aria-label="Nova tarefa"><form className="modal" onSubmit={add}><button type="button" className="close" onClick={() => setOpen(false)} aria-label="Fechar">×</button><h2>Nova tarefa recorrente</h2><p>Cadastre a próxima obrigação da carteira.</p><label>Título<input required value={draft.titulo} onChange={(e) => setDraft({ ...draft, titulo: e.target.value })} placeholder="Ex.: Conferência de documentos" /></label><label>Empresa<select value={draft.empresa} onChange={(e) => setDraft({ ...draft, empresa: e.target.value })}>{companies.map((c) => <option key={c.id}>{c.fantasia}</option>)}</select></label><label>Responsável<select value={draft.responsavel} onChange={(e) => setDraft({ ...draft, responsavel: e.target.value })}>{people.slice(1).map((p) => <option key={p}>{p}</option>)}</select></label><label>Vencimento<input type="date" value={draft.vencimento} onChange={(e) => setDraft({ ...draft, vencimento: e.target.value })} /></label><button className="primary">Salvar tarefa</button></form></div>}
+    {mode === "month" ? <section className="calendar"><div className="weekdays">{["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((d) => <span key={d}>{d}</span>)}</div><div className="day-grid">{Array.from({ length: primeiroDiaSemana }, (_, i) => <div className="day muted" key={`blank-${i}`} />)}{monthDays.map((day) => { const date = `${mesISO}-${pad2(day)}`; const items = shown.filter((t) => t.vencimento === date); const holiday = items.find((t) => t.coincideComFeriado)?.coincideComFeriado ?? null; return <div className={`day ${holiday ? "holiday" : ""}`} key={day}><span>{day}</span>{holiday && <small title={holiday.nome}>Feriado</small>}{items.map((t) => <button className={`calendar-task ${t.status === "Atrasada" ? "late" : ""}`} key={t.id} title={`${t.empresa} · ${t.responsavel}`}>{t.titulo}</button>)}</div>; })}</div></section> : <section className="panel list-tasks">{shown.map((t) => <div className="task-line" key={t.id}><time>{formatDate(t.vencimento)}</time><div><strong>{t.titulo}</strong><small>{t.empresa} · {t.responsavel} · {t.tipo}</small></div>{t.coincideComFeriado && <Badge tone="warning">Feriado: {t.coincideComFeriado.nome}</Badge>}<Badge tone={t.status === "Atrasada" ? "danger" : t.status === "Concluída" ? "success" : "blue"}>{t.status}</Badge>{t.status !== "Concluída" && <button className="icon-button" disabled={concluindoId === t.id} onClick={() => concluir(t.id)}>{concluindoId === t.id ? "Concluindo…" : "Concluir"}</button>}</div>)}{shown.length === 0 && <Empty title="Nenhuma tarefa neste mês" text="Cadastre uma tarefa avulsa ou um modelo de recorrência." />}</section>}
+
+    <section className="section-head"><div><h2>Modelos recorrentes</h2><p>Tarefas geradas automaticamente todo mês, conforme a periodicidade.</p></div><button className="primary" onClick={() => setModeloOpen(true)}>+ Novo modelo</button></section>
+    {modeloError && <div className="notice error"><p>{modeloError}</p></div>}
+    <section className="panel table-wrap">
+      <table>
+        <thead><tr><th>Título</th><th>Tipo</th><th>Periodicidade</th><th>Empresa</th><th>Responsável</th><th>Situação</th><th></th></tr></thead>
+        <tbody>
+          {modelos.map((m) => <tr key={m.id}>
+            <td><strong>{m.titulo}</strong></td>
+            <td>{m.tipo}</td>
+            <td>{m.periodicidade} (dia {m.diaReferencia})</td>
+            <td>{m.empresa}</td>
+            <td>{m.responsavel || "—"}</td>
+            <td><Badge tone={m.ativo ? "success" : "neutral"}>{m.ativo ? "Ativo" : "Inativo"}</Badge></td>
+            <td>{m.ativo && <button className="icon-button" disabled={atualizandoModeloId === m.id} onClick={() => desativarModelo(m.id)}>{atualizandoModeloId === m.id ? "Desativando…" : "Desativar"}</button>}</td>
+          </tr>)}
+        </tbody>
+      </table>
+      {modelosCarregados && modelos.length === 0 && <Empty title="Nenhum modelo de recorrência" text="Cadastre um modelo para gerar tarefas automaticamente." />}
+    </section>
+
+    {open && <div className="modal-layer" role="dialog" aria-modal="true" aria-label="Nova tarefa"><form className="modal" onSubmit={add}><button type="button" className="close" onClick={() => setOpen(false)} aria-label="Fechar">×</button><h2>Nova tarefa</h2><p>Cadastre uma obrigação avulsa da carteira.</p><label>Título<input required value={draft.titulo} onChange={(e) => setDraft({ ...draft, titulo: e.target.value })} placeholder="Ex.: Conferência de documentos" /></label><label>Empresa<select value={draft.empresaId} onChange={(e) => setDraft({ ...draft, empresaId: e.target.value })}>{companies.map((c) => <option key={c.id} value={c.id}>{c.fantasia}</option>)}</select></label><label>Responsável<select value={draft.responsavelId} onChange={(e) => setDraft({ ...draft, responsavelId: e.target.value })}><option value="">Selecione…</option>{perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label><label>Vencimento<input type="date" value={draft.vencimento} onChange={(e) => setDraft({ ...draft, vencimento: e.target.value })} /></label><button className="primary" disabled={saving}>{saving ? "Salvando…" : "Salvar tarefa"}</button></form></div>}
+
+    {modeloOpen && <div className="modal-layer" role="dialog" aria-modal="true" aria-label="Novo modelo de recorrência"><form className="modal" onSubmit={criarModelo}><button type="button" className="close" onClick={() => setModeloOpen(false)} aria-label="Fechar">×</button><h2>Novo modelo de recorrência</h2><p>Gera tarefas automaticamente a cada mês, ao abrir o calendário.</p><label>Título<input required value={modeloDraft.titulo} onChange={(e) => setModeloDraft({ ...modeloDraft, titulo: e.target.value })} placeholder="Ex.: Fechamento da folha" /></label><label>Tipo<input required value={modeloDraft.tipo} onChange={(e) => setModeloDraft({ ...modeloDraft, tipo: e.target.value })} placeholder="Ex.: Fiscal" /></label><label>Periodicidade<select value={modeloDraft.periodicidade} onChange={(e) => setModeloDraft({ ...modeloDraft, periodicidade: e.target.value as Periodicidade, diaReferencia: 1 })}><option value="mensal">Mensal</option><option value="semanal">Semanal</option><option value="anual">Anual</option></select></label><label>{modeloDraft.periodicidade === "semanal" ? "Dia da semana (1=segunda…7=domingo)" : "Dia do mês"}<input type="number" min={1} max={maxDiaReferencia} required value={modeloDraft.diaReferencia} onChange={(e) => setModeloDraft({ ...modeloDraft, diaReferencia: Number(e.target.value) })} /></label><label>Empresa<select value={modeloDraft.empresaId} onChange={(e) => setModeloDraft({ ...modeloDraft, empresaId: e.target.value })}>{companies.map((c) => <option key={c.id} value={c.id}>{c.fantasia}</option>)}</select></label><label>Responsável<select value={modeloDraft.responsavelId} onChange={(e) => setModeloDraft({ ...modeloDraft, responsavelId: e.target.value })}><option value="">Selecione…</option>{perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label><button className="primary" disabled={modeloSaving}>{modeloSaving ? "Salvando…" : "Salvar modelo"}</button></form></div>}
   </>;
 }

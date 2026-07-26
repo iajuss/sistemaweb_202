@@ -34,70 +34,35 @@ export type Divergencia = {
 };
 
 export type Tarefa = {
-  id: number;
+  id: string;
+  modeloId?: string | null;
+  empresaId?: string;
   titulo: string;
   tipo: string;
   empresa: string;
+  responsavelId?: string | null;
   responsavel: string;
   vencimento: string;
   status: "Pendente" | "Concluída" | "Atrasada";
+  concluidoEm?: string | null;
+  coincideComFeriado: { nome: string } | null;
 };
 
-const estados = ["SP", "MG", "PR", "SC", "RJ", "RS", "BA", "GO", "PE", "CE"];
-const cidades = ["São Paulo", "Belo Horizonte", "Curitiba", "Florianópolis", "Rio de Janeiro", "Porto Alegre", "Salvador", "Goiânia", "Recife", "Fortaleza"];
-const nomes = [
-  ["Horizonte", "Comércio de alimentos", "4712-1/00"], ["Núcleo", "Serviços de tecnologia", "6204-0/00"],
-  ["Ponto Certo", "Transporte rodoviário", "4930-2/02"], ["Viva", "Atividades de saúde", "8630-5/03"],
-  ["Estação", "Construção de edifícios", "4120-4/00"], ["Raiz", "Restaurantes e similares", "5611-2/01"],
-  ["Crescer", "Educação profissional", "8599-6/04"], ["Prisma", "Comércio varejista", "4781-4/00"],
-  ["Ciclo", "Consultoria empresarial", "7020-4/00"], ["Aurora", "Atividades imobiliárias", "6810-2/01"],
-  ["Pilar", "Serviços administrativos", "8211-3/00"], ["Verde", "Cultivo de frutas", "0155-5/01"],
-];
-const sufixos = ["Distribuidora Ltda.", "Soluções Ltda.", "Logística Ltda.", "Clínica Integrada Ltda.", "Engenharia Ltda.", "Bistrô Ltda."];
-const responsaveis = ["Mariana Costa", "Lucas Ferreira", "Ana Ribeiro", "Rafael Alves", "Beatriz Lima"];
+export type Periodicidade = "mensal" | "semanal" | "anual";
 
-// Mock ainda usado como base para os dados de `tarefas` abaixo (Calendário —
-// escopo de plano futuro, não tocado por esta task). `id`/`abertura` são
-// strings aqui só para bater com o shape real de `Empresa` (ver decisão de
-// shape no plano de Onboarding); nenhum consumidor atual desses mocks lê
-// `id`/`abertura` diretamente.
-export const empresas: Empresa[] = Array.from({ length: 38 }, (_, index) => {
-  const i = index + 1;
-  const nome = nomes[index % nomes.length];
-  const estadoIndex = index % estados.length;
-  const porte: Porte[] = ["Microempresa", "Pequena empresa", "Médio porte", "MEI"];
-  const status: StatusEmpresa[] = ["Ativa", "Ativa", "Ativa", "Ativa", "Suspensa", "Baixada"];
-  return {
-    id: String(i),
-    cnpj: i === 17 ? "12.345.678/0001-0X" : ` ${String(10 + i).padStart(2, "0")}.482.${String(100 + i).padStart(3, "0")}/0001-${String((i * 7) % 99).padStart(2, "0")}`.trim(),
-    razaoSocial: `${nome[0]} ${sufixos[index % sufixos.length]}`,
-    fantasia: `${nome[0]} ${index % 3 === 0 ? "& Co." : ""}`.trim(),
-    cidade: cidades[estadoIndex],
-    estado: estados[estadoIndex],
-    endereco: i === 23 ? "" : `Av. ${["Brasil", "Central", "das Nações", "Paulista"][index % 4]}, ${120 + i * 11}`,
-    cnae: nome[1],
-    cnaeCodigo: nome[2],
-    porte: porte[index % porte.length],
-    status: status[index % status.length],
-    abertura: `${2004 + ((index * 3) % 21)}-01-15`,
-    responsavel: responsaveis[index % responsaveis.length],
-    socios: [`${["João", "Carla", "Pedro", "Fernanda"][index % 4]} ${["Silva", "Oliveira", "Santos", "Mendes"][index % 4]}`, "Sócio administrador"],
-    tags: index % 2 ? ["Mensal", "Simples Nacional"] : ["Prioridade", "Lucro Presumido"],
-  };
-});
-
-export const tarefas: Tarefa[] = [
-  { id: 1, titulo: "Fechamento da folha", tipo: "Folha", empresa: empresas[0].fantasia, responsavel: "Mariana Costa", vencimento: "2026-07-24", status: "Atrasada" },
-  { id: 2, titulo: "Emitir guia DAS", tipo: "Fiscal", empresa: empresas[1].fantasia, responsavel: "Lucas Ferreira", vencimento: "2026-07-27", status: "Pendente" },
-  { id: 3, titulo: "Conferência mensal", tipo: "Contábil", empresa: empresas[2].fantasia, responsavel: "Ana Ribeiro", vencimento: "2026-07-29", status: "Pendente" },
-  { id: 4, titulo: "Enviar documentos", tipo: "Documentação", empresa: empresas[3].fantasia, responsavel: "Rafael Alves", vencimento: "2026-08-07", status: "Pendente" },
-  { id: 5, titulo: "Apuração de impostos", tipo: "Fiscal", empresa: empresas[4].fantasia, responsavel: "Beatriz Lima", vencimento: "2026-08-15", status: "Pendente" },
-  { id: 6, titulo: "Revisão de balancete", tipo: "Contábil", empresa: empresas[5].fantasia, responsavel: "Mariana Costa", vencimento: "2026-08-20", status: "Pendente" },
-  { id: 7, titulo: "Conferir obrigações", tipo: "Fiscal", empresa: empresas[6].fantasia, responsavel: "Lucas Ferreira", vencimento: "2026-09-07", status: "Pendente" },
-  { id: 8, titulo: "Fechamento da folha", tipo: "Folha", empresa: empresas[7].fantasia, responsavel: "Ana Ribeiro", vencimento: "2026-09-20", status: "Concluída" },
-];
-
-const pause = <T,>(data: T) => new Promise<T>((resolve) => setTimeout(() => resolve(data), 350));
+export type ModeloRecorrencia = {
+  id: string;
+  empresaId: string;
+  empresa: string;
+  titulo: string;
+  tipo: string;
+  periodicidade: Periodicidade;
+  diaReferencia: number;
+  responsavelId?: string | null;
+  responsavel: string;
+  ativo: boolean;
+  criadoEm?: string;
+};
 
 type SocioPayload = { nome: string; papel: string };
 
@@ -295,7 +260,120 @@ export async function executarAuditoria(incluirRegrasExternas: boolean): Promise
   return response.json();
 }
 
-/** Ponto de integração: trocar pelo GET /tarefas e POST /tarefas (plano futuro). */
-export const listarTarefas = () => pause(tarefas);
-/** Ponto de integração: BrasilAPI /api/feriados/v1/{ano}. */
-export const feriadosNacionais = ["2026-01-01", "2026-04-03", "2026-04-21", "2026-05-01", "2026-09-07", "2026-10-12", "2026-11-02", "2026-11-15", "2026-12-25"];
+/** Mês atual no formato "YYYY-MM", usado como padrão de `listarTarefas` quando nenhum mês é passado. */
+function mesAtualISO(): string {
+  const agora = new Date();
+  return `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** GET /api/tarefas?mes=YYYY-MM&responsavel= — lista as tarefas do escritório da sessão autenticada no mês pedido (mês atual por padrão). */
+export async function listarTarefas(mes?: string, responsavel?: string): Promise<Tarefa[]> {
+  const params = new URLSearchParams({ mes: mes ?? mesAtualISO() });
+  if (responsavel) {
+    params.set("responsavel", responsavel);
+  }
+
+  const response = await fetch(`/api/tarefas?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(await extrairMensagemDeErro(response, "Não foi possível carregar as tarefas."));
+  }
+  return response.json();
+}
+
+export type TarefaPayload = {
+  titulo: string;
+  tipo: string;
+  empresaId: string;
+  responsavelId?: string | null;
+  vencimento: string;
+};
+
+/** POST /api/tarefas — cria uma tarefa avulsa (não vinculada a nenhum modelo de recorrência). */
+export async function criarTarefa(tarefa: TarefaPayload): Promise<Tarefa> {
+  const response = await fetch("/api/tarefas", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(tarefa),
+  });
+
+  if (!response.ok) {
+    throw new Error(await extrairMensagemDeErro(response, "Não foi possível criar a tarefa."));
+  }
+
+  return response.json();
+}
+
+export type TarefaPatch = Partial<{ status: "Pendente" | "Concluída"; vencimento: string }>;
+
+/** PATCH /api/tarefas/:id — atualização parcial (ex.: marcar como concluída ou reagendar). */
+export async function atualizarTarefa(id: string, patch: TarefaPatch): Promise<Tarefa> {
+  const response = await fetch(`/api/tarefas/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+
+  if (!response.ok) {
+    throw new Error(await extrairMensagemDeErro(response, "Não foi possível atualizar a tarefa."));
+  }
+
+  return response.json();
+}
+
+/** GET /api/modelos-recorrencia — lista os modelos de recorrência (ativos e inativos) do escritório da sessão autenticada. */
+export async function listarModelosRecorrencia(): Promise<ModeloRecorrencia[]> {
+  const response = await fetch("/api/modelos-recorrencia");
+  if (!response.ok) {
+    throw new Error(await extrairMensagemDeErro(response, "Não foi possível carregar os modelos de recorrência."));
+  }
+  return response.json();
+}
+
+export type ModeloRecorrenciaPayload = {
+  titulo: string;
+  tipo: string;
+  periodicidade: Periodicidade;
+  diaReferencia: number;
+  empresaId: string;
+  responsavelId?: string | null;
+};
+
+/** POST /api/modelos-recorrencia — cria um modelo de recorrência (tarefas são geradas sob demanda ao abrir o calendário). */
+export async function criarModeloRecorrencia(modelo: ModeloRecorrenciaPayload): Promise<ModeloRecorrencia> {
+  const response = await fetch("/api/modelos-recorrencia", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(modelo),
+  });
+
+  if (!response.ok) {
+    throw new Error(await extrairMensagemDeErro(response, "Não foi possível criar o modelo de recorrência."));
+  }
+
+  return response.json();
+}
+
+export type ModeloRecorrenciaPatch = Partial<{
+  titulo: string;
+  tipo: string;
+  periodicidade: Periodicidade;
+  diaReferencia: number;
+  empresaId: string;
+  responsavelId: string | null;
+  ativo: boolean;
+}>;
+
+/** PATCH /api/modelos-recorrencia/:id — atualização parcial (usada principalmente para desativar: `{ ativo: false }`). */
+export async function atualizarModeloRecorrencia(id: string, patch: ModeloRecorrenciaPatch): Promise<ModeloRecorrencia> {
+  const response = await fetch(`/api/modelos-recorrencia/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+
+  if (!response.ok) {
+    throw new Error(await extrairMensagemDeErro(response, "Não foi possível atualizar o modelo de recorrência."));
+  }
+
+  return response.json();
+}
