@@ -55,7 +55,7 @@ export type Tarefa = {
   responsavelId?: string | null;
   responsavel: string;
   vencimento: string;
-  status: "Pendente" | "Concluída" | "Atrasada";
+  status: "Pendente" | "Concluída" | "Atrasada" | "Cancelada";
   concluidoEm?: string | null;
   coincideComFeriado: { nome: string } | null;
 };
@@ -64,7 +64,7 @@ export type Periodicidade = "mensal" | "semanal" | "anual";
 
 export type ModeloRecorrencia = {
   id: string;
-  empresaId: string;
+  empresaId: string | null;
   empresa: string;
   titulo: string;
   tipo: string;
@@ -357,7 +357,7 @@ export type ModeloRecorrenciaPayload = {
   tipo: string;
   periodicidade: Periodicidade;
   diaReferencia: number;
-  empresaId: string;
+  empresaId?: string | null;
   responsavelId?: string | null;
 };
 
@@ -381,7 +381,7 @@ export type ModeloRecorrenciaPatch = Partial<{
   tipo: string;
   periodicidade: Periodicidade;
   diaReferencia: number;
-  empresaId: string;
+  empresaId: string | null;
   responsavelId: string | null;
   ativo: boolean;
 }>;
@@ -399,4 +399,13 @@ export async function atualizarModeloRecorrencia(id: string, patch: ModeloRecorr
   }
 
   return response.json();
+}
+
+/** DELETE /api/modelos-recorrencia/:id — exclui o modelo (tarefas já geradas por ele viram avulsas, não são apagadas). */
+export async function excluirModeloRecorrencia(id: string): Promise<void> {
+  const response = await fetch(`/api/modelos-recorrencia/${id}`, { method: "DELETE" });
+
+  if (!response.ok) {
+    throw new Error(await extrairMensagemDeErro(response, "Não foi possível excluir o modelo de recorrência."));
+  }
 }

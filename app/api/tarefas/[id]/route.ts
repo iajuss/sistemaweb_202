@@ -2,7 +2,7 @@ import { createSupabaseRouteHandlerClient } from "@/lib/supabase/server";
 import { montarRespostaTarefa, type StatusTarefa } from "@/lib/tarefas";
 
 const VENCIMENTO_REGEX = /^\d{4}-\d{2}-\d{2}$/;
-const STATUS_VALIDOS: StatusTarefa[] = ["Pendente", "Concluída"];
+const STATUS_VALIDOS: StatusTarefa[] = ["Pendente", "Concluída", "Cancelada"];
 
 type TarefaPatchPayload = {
   titulo?: string;
@@ -73,7 +73,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const status = payload.status;
     if (!status || !STATUS_VALIDOS.includes(status as StatusTarefa)) {
       return applySetCookies(
-        Response.json({ error: 'Status deve ser "Pendente" ou "Concluída" ("Atrasada" é sempre calculado).' }, { status: 400 }),
+        Response.json({ error: 'Status deve ser "Pendente", "Concluída" ou "Cancelada" ("Atrasada" é sempre calculado).' }, { status: 400 }),
       );
     }
     updates.status = status;

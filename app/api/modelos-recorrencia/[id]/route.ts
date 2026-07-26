@@ -13,7 +13,7 @@ type ModeloRecorrenciaPatchPayload = {
   tipo?: string;
   periodicidade?: string;
   diaReferencia?: number;
-  empresaId?: string;
+  empresaId?: string | null;
   responsavelId?: string | null;
   ativo?: boolean;
 };
@@ -141,4 +141,54 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   }
 
   return applySetCookies(Response.json(paraShapeFrontend(modeloCompleto)));
+}
+
+// DELETE /api/modelos-recorrencia/:id — exclui um modelo de recorrência.
+// Antes de excluir, marca como "Cancelada" (ver `StatusTarefa` em
+// lib/tarefas.ts) todas as tarefas geradas por este modelo — sem isso,
+// `tarefas.modelo_id` (FK com `on delete set null`) só desvincularia essas
+// tarefas do modelo excluído, e elas continuariam aparecendo no calendário
+// como se fossem avulsas. RLS garante que só é possível excluir modelos do
+// próprio escritório; id inexistente ou bloqueado por RLS responde 404
+// (mesmo padrão do PATCH acima).
+export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  const { supabase, applySetCookies } = await createSupabaseRouteHandlerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return applySetCookies(Response.json({ error: "Não autenticado." }, { status: 401 }));
+  }
+
+  const { error: cancelarTarefasError } = await supabase
+    .from("tarefas")
+    .update({ status: "Cancelada", concluido_em: null })
+    .eq("modelo_id", id);
+
+  if (cancelarTarefasError) {
+    return applySetCookies(
+      Response.json({ error: "Não foi possível cancelar as tarefas geradas por este modelo." }, { status: 500 }),
+    );
+  }
+
+  const { data: modeloExcluido, error: deleteError } = await supabase
+    .from("modelos_recorrencia")
+    .delete()
+    .eq("id", id)
+    .select("id")
+    .maybeSingle();
+
+  if (deleteError) {
+    return applySetCookies(
+      Response.json({ error: "Não foi possível excluir o modelo de recorrência." }, { status: 500 }),
+    );
+  }
+
+  if (!modeloExcluido) {
+    return applySetCookies(Response.json({ error: "Modelo de recorrência não encontrado." }, { status: 404 }));
+  }
+
+  return applySetCookies(Response.json({ ok: true }));
 }

@@ -27,7 +27,14 @@ import { garantirFeriadosDoAno, type Feriado } from "./feriados.ts";
 
 type SupabaseClient = ReturnType<typeof createServerClient>;
 
-export type StatusTarefa = "Pendente" | "Concluída";
+// "Cancelada" existe só para tarefas geradas por um modelo de recorrência:
+// excluir essa ocorrência de verdade (DELETE) não "gruda", porque
+// `gerarTarefasDoMes` recria qualquer (modelo_id, vencimento) que não
+// encontre no banco na próxima vez que o mês for carregado. Marcar como
+// "Cancelada" em vez de apagar mantém a linha como uma "lápide" que bloqueia
+// a regeneração, sem aparecer em lugar nenhum do frontend (ver o filtro no
+// GET de `app/api/tarefas/route.ts`).
+export type StatusTarefa = "Pendente" | "Concluída" | "Cancelada";
 
 export type TarefaRow = {
   id: string;
@@ -40,15 +47,21 @@ export type TarefaRow = {
   vencimento: string;
   status: string;
   concluido_em: string | null;
+  // Embed usado só para filtrar no GET (ver `app/api/tarefas/route.ts`): uma
+  // tarefa cujo modelo foi desativado some do calendário até o modelo ser
+  // reativado — a tarefa em si não é apagada nem alterada, só deixa de ser
+  // listada enquanto o modelo estiver inativo. `null` para tarefas avulsas
+  // (sem modelo).
+  modelo: { ativo: boolean } | null;
   empresa: { fantasia: string } | null;
   responsavel: { nome: string } | null;
 };
 
-export const TAREFA_SELECT = "*, empresa:empresas(fantasia), responsavel:perfis(nome)";
+export const TAREFA_SELECT = "*, empresa:empresas(fantasia), responsavel:perfis(nome), modelo:modelos_recorrencia(ativo)";
 
 type ModeloRecorrenciaParaGeracao = {
   id: string;
-  empresa_id: string;
+  empresa_id: string | null;
   titulo: string;
   tipo: string;
   periodicidade: string;

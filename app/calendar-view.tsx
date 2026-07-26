@@ -2,7 +2,7 @@
 
 import { FormEvent, ReactNode, useEffect, useState } from "react";
 import {
-  atualizarModeloRecorrencia, atualizarTarefa, criarModeloRecorrencia, criarTarefa,
+  atualizarModeloRecorrencia, atualizarTarefa, criarModeloRecorrencia, criarTarefa, excluirModeloRecorrencia,
   listarModelosRecorrencia, listarTarefas,
   type Empresa, type ModeloRecorrencia, type Periodicidade, type Tarefa,
 } from "../src/services/portfolio";
@@ -41,7 +41,12 @@ function descreverRecorrencia(m: ModeloRecorrencia): string {
 }
 
 const nomeEmpresaTarefa = (t: Tarefa) => (t.empresa && t.empresa.trim() !== "" ? t.empresa : "Reunião interna");
-const naturezaTarefa = (t: Tarefa): "Interna" | "Externa" => (t.empresaId ? "Externa" : t.tipo === "Interna" ? "Interna" : "Externa");
+// Deriva só de `empresaId` (não de `tipo`): tarefas geradas a partir de um
+// modelo de recorrência interno herdam o `tipo` livre do modelo (ex.:
+// "Fiscal"), não o literal "Interna" usado só por tarefas avulsas — checar
+// `tipo === "Interna"` classificaria essas tarefas geradas erroneamente como
+// "Externa".
+const naturezaTarefa = (t: Tarefa): "Interna" | "Externa" => (t.empresaId ? "Externa" : "Interna");
 
 /** Modal de edição de uma tarefa: título, natureza (Interna/Externa),
  * empresa cliente (quando externa), responsável e vencimento. */
@@ -101,6 +106,68 @@ function TarefaEditModal({ tarefa, companies, perfis, onClose, onSaved }: {
   </form></div>;
 }
 
+/** Modal de edição de um modelo de recorrência: título, natureza
+ * (Interna/Externa), tipo, periodicidade, empresa cliente (quando externo) e
+ * responsável. */
+function ModeloEditModal({ modelo, companies, perfis, onClose, onSaved }: {
+  modelo: ModeloRecorrencia; companies: Empresa[]; perfis: { id: string; nome: string }[];
+  onClose: () => void; onSaved: (modelo: ModeloRecorrencia) => void;
+}) {
+  const [titulo, setTitulo] = useState(modelo.titulo);
+  const [natureza, setNatureza] = useState<"Interna" | "Externa">(modelo.empresaId ? "Externa" : "Interna");
+  const [tipo, setTipo] = useState(modelo.tipo);
+  const [periodicidade, setPeriodicidade] = useState<Periodicidade>(modelo.periodicidade);
+  const [diaReferencia, setDiaReferencia] = useState(modelo.diaReferencia);
+  const [empresaId, setEmpresaId] = useState(modelo.empresaId ?? (companies[0]?.id ?? ""));
+  const [responsavelId, setResponsavelId] = useState(modelo.responsavelId ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const maxDia = periodicidade === "semanal" ? 7 : 31;
+  const semEmpresa = natureza === "Externa" && companies.length === 0;
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    if (natureza === "Externa" && !empresaId) { setError("Selecione a empresa cliente do modelo externo."); return; }
+    setSaving(true); setError("");
+    try {
+      const atualizado = await atualizarModeloRecorrencia(modelo.id, {
+        titulo, tipo, periodicidade, diaReferencia,
+        empresaId: natureza === "Externa" ? empresaId : null,
+        responsavelId: responsavelId || null,
+      });
+      onSaved(atualizado);
+    } catch (err) {
+      const bruta = err instanceof Error ? err.message : "Não foi possível atualizar o modelo de recorrência";
+      setError(`${semPontoFinal(bruta)}. Tente novamente.`);
+      setSaving(false);
+    }
+  };
+
+  return <div className="modal-layer" role="dialog" aria-modal="true" aria-label={`Editar ${modelo.titulo}`}><form className="modal" onSubmit={save}>
+    <button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button>
+    <h2>Editar modelo de recorrência</h2>
+    <label>Título<input required value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Ex.: Fechamento da folha" /></label>
+    <div className="field-block">
+      <span className="field-label">Natureza do modelo</span>
+      <div className="segmented" role="group" aria-label="Natureza do modelo">
+        <button type="button" className={natureza === "Interna" ? "selected" : ""} onClick={() => setNatureza("Interna")}>Interna</button>
+        <button type="button" className={natureza === "Externa" ? "selected" : ""} onClick={() => setNatureza("Externa")}>Externa</button>
+      </div>
+      <small className="field-hint">{natureza === "Interna" ? "Rotina ou reunião recorrente da própria equipe." : "Obrigação recorrente de uma empresa cliente."}</small>
+    </div>
+    <label>Tipo<input required value={tipo} onChange={(e) => setTipo(e.target.value)} placeholder="Ex.: Fiscal" /></label>
+    <label>Periodicidade<select value={periodicidade} onChange={(e) => { const p = e.target.value as Periodicidade; setPeriodicidade(p); setDiaReferencia(1); }}><option value="mensal">Mensal</option><option value="semanal">Semanal</option><option value="anual">Anual</option></select></label>
+    {periodicidade === "semanal"
+      ? <label>Dia da semana<select value={diaReferencia} onChange={(e) => setDiaReferencia(Number(e.target.value))}>{DIAS_SEMANA.map(([n, label]) => <option key={n} value={n}>{label}</option>)}</select></label>
+      : <label>Dia do mês<input type="number" min={1} max={maxDia} required value={diaReferencia} onChange={(e) => setDiaReferencia(Number(e.target.value))} /></label>}
+    {natureza === "Externa" && companies.length > 0 && <label>Empresa<select value={empresaId} onChange={(e) => setEmpresaId(e.target.value)}>{companies.map((c) => <option key={c.id} value={c.id}>{c.fantasia}</option>)}</select></label>}
+    <label>Responsável<select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)}><option value="">Selecione…</option>{perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label>
+    {semEmpresa && <p className="inline-error">Nenhuma empresa cadastrada — cadastre uma no Onboarding para vincular modelos externos.</p>}
+    {error && <div className="notice error"><p>{error}</p></div>}
+    <button className="primary" disabled={saving || semEmpresa}>{saving ? "Salvando…" : "Salvar alterações"}</button>
+  </form></div>;
+}
+
 export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa[]; setTasks: (tasks: Tarefa[]) => void; companies: Empresa[]; perfis: { id: string; nome: string }[] }) {
   const hoje = new Date();
   const anoHoje = hoje.getFullYear();
@@ -147,7 +214,11 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
   const [modeloSaving, setModeloSaving] = useState(false);
   const [modeloError, setModeloError] = useState("");
   const [atualizandoModeloId, setAtualizandoModeloId] = useState<string | null>(null);
-  const [modeloDraft, setModeloDraft] = useState({ titulo: "", tipo: "Fiscal", periodicidade: "mensal" as Periodicidade, diaReferencia: 10, empresaId: companies[0]?.id ?? "", responsavelId: perfis[0]?.id ?? "" });
+  const [modeloDraft, setModeloDraft] = useState({ titulo: "", tipo: "Fiscal", periodicidade: "mensal" as Periodicidade, diaReferencia: 10, natureza: "Externa" as "Interna" | "Externa", empresaId: companies[0]?.id ?? "", responsavelId: perfis[0]?.id ?? "" });
+  const [editingModelo, setEditingModelo] = useState<ModeloRecorrencia | null>(null);
+  const [deletingModelo, setDeletingModelo] = useState<ModeloRecorrencia | null>(null);
+  const [deleteModeloSaving, setDeleteModeloSaving] = useState(false);
+  const [deleteModeloError, setDeleteModeloError] = useState("");
 
   useEffect(() => {
     listarModelosRecorrencia()
@@ -252,7 +323,16 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
     if (!deletingTask) return;
     setDeleteSaving(true); setDeleteError("");
     try {
-      await excluirTarefa(deletingTask.id);
+      if (deletingTask.modeloId) {
+        // Tarefa gerada por um modelo de recorrência: excluir de verdade
+        // (DELETE) não gruda — `gerarTarefasDoMes` recriaria essa mesma
+        // ocorrência (modelo_id, vencimento) na próxima vez que o mês fosse
+        // carregado. "Cancelada" marca essa ocorrência como uma exceção,
+        // sem afetar as próximas datas do modelo.
+        await editarTarefa(deletingTask.id, { status: "Cancelada" });
+      } else {
+        await excluirTarefa(deletingTask.id);
+      }
     } catch (error) {
       const bruta = error instanceof Error ? error.message : "Não foi possível excluir a tarefa";
       setDeleteError(`${semPontoFinal(bruta)}. Tente novamente.`);
@@ -299,10 +379,14 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
     }
   };
 
+  const escolherExternaNoModeloDraft = () => {
+    setModeloDraft((d) => ({ ...d, natureza: "Externa", empresaId: d.empresaId || companies[0]?.id || "" }));
+  };
+
   const criarModelo = async (e: FormEvent) => {
     e.preventDefault();
-    if (!modeloDraft.empresaId) {
-      setModeloError("Selecione uma empresa.");
+    if (modeloDraft.natureza === "Externa" && !modeloDraft.empresaId) {
+      setModeloError("Selecione a empresa cliente do modelo externo.");
       return;
     }
     setModeloSaving(true); setModeloError("");
@@ -312,7 +396,7 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
         tipo: modeloDraft.tipo,
         periodicidade: modeloDraft.periodicidade,
         diaReferencia: modeloDraft.diaReferencia,
-        empresaId: modeloDraft.empresaId,
+        empresaId: modeloDraft.natureza === "Externa" ? modeloDraft.empresaId : null,
         responsavelId: modeloDraft.responsavelId || null,
       });
     } catch (error) {
@@ -321,7 +405,11 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
       setModeloSaving(false);
       return;
     }
+    // Um modelo novo (se ativo) pode ter uma ocorrência já no mês em
+    // exibição — sem recarregar as tarefas do mês, ela só apareceria na
+    // próxima troca de mês/reload, não imediatamente.
     await refetchModelos("Modelo criado, mas não foi possível atualizar a lista. Atualize a página.");
+    await recarregarMes("Modelo criado, mas não foi possível atualizar o calendário. Atualize a página.");
     setModeloSaving(false);
     setModeloOpen(false);
   };
@@ -336,12 +424,65 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
       setAtualizandoModeloId(null);
       return;
     }
+    // `refetchModelos` e a limpeza do loading precisam terminar juntos, na
+    // mesma atualização: `refetchModelos` é quem vira `m.ativo` pra false (o
+    // que troca o botão de "Desativar" para "Reativar"). Se o loading
+    // limpasse antes, a linha piscaria de volta pro texto original por um
+    // instante, antes de virar pro botão certo — uma transição em duas
+    // etapas, confusa. `recarregarMes` não afeta esta linha (só o
+    // calendário), então roda depois, sem impacto visual aqui.
     await refetchModelos("Modelo desativado, mas não foi possível atualizar a lista. Atualize a página.");
     setAtualizandoModeloId(null);
+    await recarregarMes("Modelo desativado, mas não foi possível atualizar o calendário. Atualize a página.");
+  };
+
+  const reativarModelo = async (id: string) => {
+    setAtualizandoModeloId(id); setModeloError("");
+    try {
+      await atualizarModeloRecorrencia(id, { ativo: true });
+    } catch (error) {
+      const bruta = error instanceof Error ? error.message : "Não foi possível reativar o modelo";
+      setModeloError(`${semPontoFinal(bruta)}. Tente novamente.`);
+      setAtualizandoModeloId(null);
+      return;
+    }
+    await refetchModelos("Modelo reativado, mas não foi possível atualizar a lista. Atualize a página.");
+    setAtualizandoModeloId(null);
+    await recarregarMes("Modelo reativado, mas não foi possível atualizar o calendário. Atualize a página.");
+  };
+
+  const handleModeloEditado = async (atualizado: ModeloRecorrencia) => {
+    setModelos(modelos.map((m) => (m.id === atualizado.id ? atualizado : m)));
+    setEditingModelo(null);
+    await recarregarMes("Modelo atualizado, mas não foi possível atualizar o calendário. Atualize a página.");
+  };
+
+  const confirmDeleteModelo = async () => {
+    if (!deletingModelo) return;
+    setDeleteModeloSaving(true); setDeleteModeloError("");
+    try {
+      await excluirModeloRecorrencia(deletingModelo.id);
+    } catch (error) {
+      const bruta = error instanceof Error ? error.message : "Não foi possível excluir o modelo de recorrência";
+      setDeleteModeloError(`${semPontoFinal(bruta)}. Tente novamente.`);
+      setDeleteModeloSaving(false);
+      return;
+    }
+    setDeletingModelo(null);
+    await refetchModelos("Modelo excluído, mas não foi possível atualizar a lista. Atualize a página.");
+    await recarregarMes("Modelo excluído, mas não foi possível atualizar o calendário. Atualize a página.");
+    setDeleteModeloSaving(false);
   };
 
   const maxDiaReferencia = modeloDraft.periodicidade === "semanal" ? 7 : 31;
   const semEmpresaExterna = draft.natureza === "Externa" && companies.length === 0;
+  const semEmpresaExternaModelo = modeloDraft.natureza === "Externa" && companies.length === 0;
+
+  const abrirNovoModelo = () => {
+    setModeloError("");
+    setModeloDraft({ titulo: "", tipo: "Fiscal", periodicidade: "mensal", diaReferencia: 10, natureza: "Externa", empresaId: companies[0]?.id ?? "", responsavelId: perfis[0]?.id ?? "" });
+    setModeloOpen(true);
+  };
 
   return <>
     <section className="section-head"><div><h2>Calendário contábil</h2><p>{mesLabel} · obrigações e rotinas da carteira.</p></div><button className="primary" onClick={abrirNovaTarefa}>+ Nova tarefa</button></section>
@@ -387,7 +528,7 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
       </div>
     </>}
 
-    <section className="section-head"><div><h2>Modelos recorrentes</h2><p>Tarefas geradas automaticamente todo mês, conforme a periodicidade.</p></div><button className="primary" onClick={() => setModeloOpen(true)}>+ Novo modelo</button></section>
+    <section className="section-head"><div><h2>Modelos recorrentes</h2><p>Tarefas geradas automaticamente todo mês, conforme a periodicidade.</p></div><button className="primary" onClick={abrirNovoModelo}>+ Novo modelo</button></section>
     {modeloError && <div className="notice error"><p>{modeloError}</p></div>}
     <section className="panel table-wrap">
       <table>
@@ -397,10 +538,16 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
             <td><strong>{m.titulo}</strong></td>
             <td>{m.tipo}</td>
             <td>{descreverRecorrencia(m)}</td>
-            <td>{m.empresa}</td>
+            <td>{m.empresa || "Reunião interna"}</td>
             <td>{m.responsavel || "—"}</td>
             <td><Badge tone={m.ativo ? "success" : "neutral"}>{m.ativo ? "Ativo" : "Inativo"}</Badge></td>
-            <td>{m.ativo && <button className="icon-button" disabled={atualizandoModeloId === m.id} onClick={() => desativarModelo(m.id)}>{atualizandoModeloId === m.id ? "Desativando…" : "Desativar"}</button>}</td>
+            <td className="actions">
+              <button className="icon-button" onClick={() => setEditingModelo(m)}>Editar</button>
+              {m.ativo
+                ? <button className="icon-button" disabled={atualizandoModeloId === m.id} onClick={() => desativarModelo(m.id)}>{atualizandoModeloId === m.id ? "Desativando…" : "Desativar"}</button>
+                : <button className="icon-button" disabled={atualizandoModeloId === m.id} onClick={() => reativarModelo(m.id)}>{atualizandoModeloId === m.id ? "Reativando…" : "Reativar"}</button>}
+              <button className="icon-button" onClick={() => { setDeletingModelo(m); setDeleteModeloError(""); }}>Excluir</button>
+            </td>
           </tr>)}
         </tbody>
       </table>
@@ -432,18 +579,31 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
       <h2>Novo modelo de recorrência</h2>
       <p>Gera tarefas automaticamente a cada mês, ao abrir o calendário.</p>
       <label>Título<input required value={modeloDraft.titulo} onChange={(e) => setModeloDraft({ ...modeloDraft, titulo: e.target.value })} placeholder="Ex.: Fechamento da folha" /></label>
+      <div className="field-block">
+        <span className="field-label">Natureza do modelo</span>
+        <div className="segmented" role="group" aria-label="Natureza do modelo">
+          <button type="button" className={modeloDraft.natureza === "Interna" ? "selected" : ""} onClick={() => setModeloDraft({ ...modeloDraft, natureza: "Interna" })}>Interna</button>
+          <button type="button" className={modeloDraft.natureza === "Externa" ? "selected" : ""} onClick={escolherExternaNoModeloDraft}>Externa</button>
+        </div>
+        <small className="field-hint">{modeloDraft.natureza === "Interna" ? "Rotina ou reunião recorrente da própria equipe." : "Obrigação recorrente de uma empresa cliente."}</small>
+      </div>
       <label>Tipo<input required value={modeloDraft.tipo} onChange={(e) => setModeloDraft({ ...modeloDraft, tipo: e.target.value })} placeholder="Ex.: Fiscal" /></label>
       <label>Periodicidade<select value={modeloDraft.periodicidade} onChange={(e) => setModeloDraft({ ...modeloDraft, periodicidade: e.target.value as Periodicidade, diaReferencia: 1 })}><option value="mensal">Mensal</option><option value="semanal">Semanal</option><option value="anual">Anual</option></select></label>
       {modeloDraft.periodicidade === "semanal"
         ? <label>Dia da semana<select value={modeloDraft.diaReferencia} onChange={(e) => setModeloDraft({ ...modeloDraft, diaReferencia: Number(e.target.value) })}>{DIAS_SEMANA.map(([n, label]) => <option key={n} value={n}>{label}</option>)}</select></label>
         : <label>Dia do mês<input type="number" min={1} max={maxDiaReferencia} required value={modeloDraft.diaReferencia} onChange={(e) => setModeloDraft({ ...modeloDraft, diaReferencia: Number(e.target.value) })} /></label>}
-      <label>Empresa<select value={modeloDraft.empresaId} onChange={(e) => setModeloDraft({ ...modeloDraft, empresaId: e.target.value })}>{companies.map((c) => <option key={c.id} value={c.id}>{c.fantasia}</option>)}</select></label>
+      {modeloDraft.natureza === "Externa" && companies.length > 0 && <label>Empresa<select value={modeloDraft.empresaId} onChange={(e) => setModeloDraft({ ...modeloDraft, empresaId: e.target.value })}>{companies.map((c) => <option key={c.id} value={c.id}>{c.fantasia}</option>)}</select></label>}
       <label>Responsável<select value={modeloDraft.responsavelId} onChange={(e) => setModeloDraft({ ...modeloDraft, responsavelId: e.target.value })}><option value="">Selecione…</option>{perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label>
-      <button className="primary" disabled={modeloSaving}>{modeloSaving ? "Salvando…" : "Salvar modelo"}</button>
+      {semEmpresaExternaModelo && <p className="inline-error">Nenhuma empresa cadastrada — cadastre uma no Onboarding para criar modelos externos.</p>}
+      <button className="primary" disabled={modeloSaving || semEmpresaExternaModelo}>{modeloSaving ? "Salvando…" : "Salvar modelo"}</button>
     </form></div>}
 
     {editingTask && <TarefaEditModal tarefa={editingTask} companies={companies} perfis={perfis} onClose={() => setEditingTask(null)} onSaved={handleTarefaEditada} />}
 
-    {deletingTask && <div className="modal-layer" role="dialog" aria-modal="true" aria-label="Confirmar exclusão"><div className="modal"><button type="button" className="close" onClick={() => setDeletingTask(null)} aria-label="Fechar">×</button><h2>Excluir tarefa</h2><p>Tem certeza que deseja excluir <strong>{deletingTask.titulo}</strong>? Essa ação não pode ser desfeita.</p>{deleteError && <div className="notice error"><p>{deleteError}</p></div>}<button type="button" className="primary danger" onClick={confirmDeleteTask} disabled={deleteSaving}>{deleteSaving ? "Excluindo…" : "Excluir definitivamente"}</button></div></div>}
+    {deletingTask && <div className="modal-layer" role="dialog" aria-modal="true" aria-label="Confirmar exclusão"><div className="modal"><button type="button" className="close" onClick={() => setDeletingTask(null)} aria-label="Fechar">×</button><h2>Excluir tarefa</h2><p>Tem certeza que deseja excluir <strong>{deletingTask.titulo}</strong>? {deletingTask.modeloId ? "Essa ocorrência será removida do calendário e não voltará a ser gerada — as próximas datas do modelo de recorrência continuam normalmente." : "Essa ação não pode ser desfeita."}</p>{deleteError && <div className="notice error"><p>{deleteError}</p></div>}<button type="button" className="primary danger" onClick={confirmDeleteTask} disabled={deleteSaving}>{deleteSaving ? "Excluindo…" : "Excluir definitivamente"}</button></div></div>}
+
+    {editingModelo && <ModeloEditModal modelo={editingModelo} companies={companies} perfis={perfis} onClose={() => setEditingModelo(null)} onSaved={handleModeloEditado} />}
+
+    {deletingModelo && <div className="modal-layer" role="dialog" aria-modal="true" aria-label="Confirmar exclusão"><div className="modal"><button type="button" className="close" onClick={() => setDeletingModelo(null)} aria-label="Fechar">×</button><h2>Excluir modelo de recorrência</h2><p>Tem certeza que deseja excluir <strong>{deletingModelo.titulo}</strong>? Todas as tarefas já geradas por este modelo somem do calendário junto. Essa ação não pode ser desfeita.</p>{deleteModeloError && <div className="notice error"><p>{deleteModeloError}</p></div>}<button type="button" className="primary danger" onClick={confirmDeleteModelo} disabled={deleteModeloSaving}>{deleteModeloSaving ? "Excluindo…" : "Excluir definitivamente"}</button></div></div>}
   </>;
 }

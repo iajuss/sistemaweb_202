@@ -55,6 +55,10 @@ export async function GET(request: Request) {
     .select(TAREFA_SELECT)
     .gte("vencimento", inicio)
     .lte("vencimento", fim)
+    // "Cancelada" é a "lápide" de uma ocorrência excluída de um modelo de
+    // recorrência (ver `StatusTarefa` em lib/tarefas.ts) — existe só para
+    // `gerarTarefasDoMes` não regenerá-la, nunca deve aparecer no frontend.
+    .neq("status", "Cancelada")
     .order("vencimento", { ascending: true });
 
   if (error) {
@@ -62,6 +66,11 @@ export async function GET(request: Request) {
   }
 
   let linhas = data as unknown as TarefaRow[];
+
+  // Tarefa vinculada a um modelo atualmente inativo some do calendário (mas
+  // não é apagada nem alterada) — volta a aparecer assim que o modelo for
+  // reativado. Tarefas avulsas (`modelo: null`) nunca são afetadas.
+  linhas = linhas.filter((linha) => linha.modelo === null || linha.modelo.ativo);
 
   if (responsavelFiltro) {
     linhas = linhas.filter((linha) => (linha.responsavel?.nome ?? "").toLowerCase() === responsavelFiltro.toLowerCase());

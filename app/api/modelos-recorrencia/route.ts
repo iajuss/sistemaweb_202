@@ -42,14 +42,18 @@ type ModeloRecorrenciaPayload = {
   tipo?: string;
   periodicidade?: string;
   diaReferencia?: number;
-  empresaId?: string;
+  empresaId?: string | null;
   responsavelId?: string | null;
 };
 
 // POST /api/modelos-recorrencia — cria um modelo de recorrência no
 // escritório da sessão. `diaReferencia` é validado contra a faixa plausível
 // para a `periodicidade` escolhida (1-7 para semanal, dia da semana; 1-31
-// para mensal/anual, dia do mês).
+// para mensal/anual, dia do mês). `empresaId` é opcional: um modelo interno
+// (reunião/rotina da própria equipe) não tem empresa associada — mesmo
+// racional de `tarefas.empresa_id` (ver `0010_tarefas_empresa_nullable.sql`).
+// A obrigatoriedade de escolher uma empresa quando o modelo é "externo" é
+// decisão de frontend (mesmo padrão de `POST /api/tarefas`), não da API.
 export async function POST(request: Request) {
   const { supabase, applySetCookies } = await createSupabaseRouteHandlerClient();
   const {
@@ -72,9 +76,9 @@ export async function POST(request: Request) {
   const empresaId = payload.empresaId?.trim() ?? "";
   const periodicidade = payload.periodicidade;
 
-  if (!titulo || !tipo || !empresaId) {
+  if (!titulo || !tipo) {
     return applySetCookies(
-      Response.json({ error: "Título, tipo e empresa são obrigatórios." }, { status: 400 }),
+      Response.json({ error: "Título e tipo são obrigatórios." }, { status: 400 }),
     );
   }
 
@@ -115,7 +119,7 @@ export async function POST(request: Request) {
     .from("modelos_recorrencia")
     .insert({
       escritorio_id: (perfil as { escritorio_id: string }).escritorio_id,
-      empresa_id: empresaId,
+      empresa_id: empresaId || null,
       titulo,
       tipo,
       periodicidade,

@@ -81,9 +81,7 @@ export const modelosRecorrencia = pgTable("modelos_recorrencia", {
   escritorioId: uuid("escritorio_id")
     .notNull()
     .references(() => escritorios.id, { onDelete: "cascade" }),
-  empresaId: uuid("empresa_id")
-    .notNull()
-    .references(() => empresas.id, { onDelete: "cascade" }),
+  empresaId: uuid("empresa_id").references(() => empresas.id, { onDelete: "cascade" }),
   titulo: text("titulo").notNull(),
   tipo: text("tipo").notNull(),
   periodicidade: text("periodicidade").notNull(),

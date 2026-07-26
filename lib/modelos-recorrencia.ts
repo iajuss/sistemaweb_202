@@ -13,7 +13,7 @@ export type Periodicidade = "mensal" | "semanal" | "anual";
 export type ModeloRecorrenciaRow = {
   id: string;
   escritorio_id: string;
-  empresa_id: string;
+  empresa_id: string | null;
   titulo: string;
   tipo: string;
   periodicidade: string;
