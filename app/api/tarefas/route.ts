@@ -76,14 +76,16 @@ export async function GET(request: Request) {
 type TarefaPayload = {
   titulo?: string;
   tipo?: string;
-  empresaId?: string;
+  empresaId?: string | null;
   responsavelId?: string | null;
   vencimento?: string;
 };
 
 // POST /api/tarefas — cria uma tarefa avulsa (modelo_id: null) no escritório
-// da sessão. Retorna a tarefa criada no shape do GET (com embeds e alerta de
-// feriado já calculados).
+// da sessão. `tipo` guarda a natureza da tarefa: "Externa" (reunião/obrigação
+// com uma empresa cliente, exige `empresaId`) ou "Interna" (reunião da própria
+// equipe, sem empresa: `empresa_id = NULL`). Retorna a tarefa criada no shape
+// do GET (com embeds e alerta de feriado já calculados).
 export async function POST(request: Request) {
   const { supabase, applySetCookies } = await createSupabaseRouteHandlerClient();
   const {
@@ -103,12 +105,19 @@ export async function POST(request: Request) {
 
   const titulo = payload.titulo?.trim() ?? "";
   const tipo = payload.tipo?.trim() ?? "";
-  const empresaId = payload.empresaId?.trim() ?? "";
+  const empresaId = payload.empresaId?.trim?.() ?? "";
   const vencimento = payload.vencimento?.trim() ?? "";
+  const interna = tipo === "Interna";
 
-  if (!titulo || !tipo || !empresaId || !vencimento) {
+  if (!titulo || !tipo || !vencimento) {
     return applySetCookies(
-      Response.json({ error: "Título, tipo, empresa e vencimento são obrigatórios." }, { status: 400 }),
+      Response.json({ error: "Título, tipo e vencimento são obrigatórios." }, { status: 400 }),
+    );
+  }
+
+  if (!interna && !empresaId) {
+    return applySetCookies(
+      Response.json({ error: "Selecione a empresa cliente da tarefa externa." }, { status: 400 }),
     );
   }
 
@@ -133,7 +142,7 @@ export async function POST(request: Request) {
     .insert({
       escritorio_id: (perfil as { escritorio_id: string }).escritorio_id,
       modelo_id: null,
-      empresa_id: empresaId,
+      empresa_id: interna ? null : empresaId,
       titulo,
       tipo,
       responsavel_id: payload.responsavelId ?? null,
