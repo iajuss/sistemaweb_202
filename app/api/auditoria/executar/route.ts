@@ -6,7 +6,8 @@ import {
   type EmpresaParaAuditoria,
   type DivergenciaDetectada,
 } from "@/lib/auditoria";
-import { consultarCNPJNaBrasilAPI, BrasilAPIError } from "@/lib/brasilapi";
+import { BrasilAPIError } from "@/lib/brasilapi";
+import { consultarCNPJComCache } from "@/lib/cnpj-cache";
 
 type ExecutarAuditoriaPayload = {
   incluirRegrasExternas?: boolean;
@@ -192,7 +193,7 @@ export async function POST(request: Request) {
   if (incluirRegrasExternas) {
     for (const empresa of empresas) {
       try {
-        const dadosBrasilAPI = await consultarCNPJNaBrasilAPI(empresa.cnpj);
+        const dadosBrasilAPI = await consultarCNPJComCache(supabase, empresa.cnpj);
         detectadas.push(...avaliarRegrasExternas(empresa, dadosBrasilAPI));
         // Consulta OK: razão social e endereço desta empresa foram de fato
         // reavaliados contra a BrasilAPI nesta execução.

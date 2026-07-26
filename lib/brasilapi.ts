@@ -30,7 +30,11 @@ export class BrasilAPIError extends Error {
 }
 
 const BRASILAPI_CNPJ_URL = "https://brasilapi.com.br/api/cnpj/v1";
-const ESPERA_ANTES_DE_RETENTAR_MS = 500;
+// A BrasilAPI limita por rajada curta (segundos), não por um período longo —
+// por isso vale a pena insistir um pouco mais antes de desistir: 3 tentativas
+// com espera crescente cobrem rajadas de alguns segundos sem exigir que o
+// usuário clique em "Consultar" de novo manualmente.
+const ESPERAS_ENTRE_TENTATIVAS_MS = [500, 1500, 3000];
 
 const SITUACOES_CADASTRAIS_CONHECIDAS: Record<string, "Ativa" | "Suspensa" | "Baixada"> = {
   ATIVA: "Ativa",
@@ -61,7 +65,9 @@ function capitalizar(texto: string): string {
   return texto.charAt(0).toUpperCase() + texto.slice(1).toLowerCase();
 }
 
-function normalizarSituacaoCadastral(situacao: string | undefined): string {
+/** Exportada para reuso em outros provedores (ver `lib/receitaws.ts`) — garante que
+ * a mesma situação cadastral apareça sempre com a mesma grafia, não importa o provedor. */
+export function normalizarSituacaoCadastral(situacao: string | undefined): string {
   if (!situacao) {
     return "";
   }
@@ -109,7 +115,8 @@ async function buscarNaBrasilAPI(cnpjSomenteDigitos: string): Promise<Response> 
  * `EmpresaBrasilAPI`.
  *
  * - `404` → `BrasilAPIError(404, ...)`.
- * - `429` → espera ~500ms e tenta uma vez mais; se persistir, `BrasilAPIError(429, ...)`.
+ * - `429` → tenta de novo com espera crescente (ver `ESPERAS_ENTRE_TENTATIVAS_MS`);
+ *   se persistir em todas as tentativas, `BrasilAPIError(429, ...)`.
  * - Qualquer outro erro de rede/status → `BrasilAPIError(502, ...)`.
  */
 export async function consultarCNPJNaBrasilAPI(cnpj: string): Promise<EmpresaBrasilAPI> {
@@ -117,13 +124,16 @@ export async function consultarCNPJNaBrasilAPI(cnpj: string): Promise<EmpresaBra
 
   let response = await buscarNaBrasilAPI(cnpjSomenteDigitos);
 
-  if (response.status === 429) {
-    await new Promise((resolve) => setTimeout(resolve, ESPERA_ANTES_DE_RETENTAR_MS));
-    response = await buscarNaBrasilAPI(cnpjSomenteDigitos);
-
-    if (response.status === 429) {
-      throw new BrasilAPIError(429, "Muitas consultas à BrasilAPI, tente novamente em instantes");
+  for (const esperaMs of ESPERAS_ENTRE_TENTATIVAS_MS) {
+    if (response.status !== 429) {
+      break;
     }
+    await new Promise((resolve) => setTimeout(resolve, esperaMs));
+    response = await buscarNaBrasilAPI(cnpjSomenteDigitos);
+  }
+
+  if (response.status === 429) {
+    throw new BrasilAPIError(429, "Muitas consultas à BrasilAPI, tente novamente em instantes");
   }
 
   if (response.status === 404) {

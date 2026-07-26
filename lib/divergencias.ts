@@ -47,6 +47,8 @@ export function paraShapeFrontend(row: DivergenciaRow) {
     atual: row.atual,
     sugerido: row.sugerido,
     status: row.status,
+    detectadoEm: row.detectado_em,
+    resolvidoEm: row.resolvido_em,
     empresaRelacionada: row.empresa_relacionada
       ? {
           id: row.empresa_relacionada.id,

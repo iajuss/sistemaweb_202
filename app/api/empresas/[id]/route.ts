@@ -16,6 +16,7 @@ type EmpresaPatchPayload = {
   responsavelId?: string | null;
   observacoes?: string;
   tags?: string[];
+  socios?: { nome: string; papel: string }[];
 };
 
 const CAMPOS_EDITAVEIS: { chave: keyof EmpresaPatchPayload; coluna: string }[] = [
@@ -79,6 +80,30 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 
   if (!empresaAtualizada) {
     return applySetCookies(Response.json({ error: "Empresa não encontrada." }, { status: 404 }));
+  }
+
+  // `empresas_socios` não é coluna de `empresas` — substituímos a lista
+  // inteira (delete + insert) quando o corpo traz `socios`, mesmo padrão do
+  // POST de criação. Sem transação multi-tabela via PostgREST, mas o pior
+  // caso de falha no insert é ficar sem sócios até o próximo PATCH, não
+  // perder a empresa em si (já persistida acima).
+  if ("socios" in payload) {
+    const { error: deleteSociosError } = await supabase.from("empresas_socios").delete().eq("empresa_id", id);
+
+    if (deleteSociosError) {
+      return applySetCookies(Response.json({ error: "Não foi possível atualizar o quadro societário." }, { status: 500 }));
+    }
+
+    const socios = payload.socios ?? [];
+    if (socios.length > 0) {
+      const { error: insertSociosError } = await supabase.from("empresas_socios").insert(
+        socios.map((socio) => ({ empresa_id: id, nome: socio.nome, papel: socio.papel ?? "" })),
+      );
+
+      if (insertSociosError) {
+        return applySetCookies(Response.json({ error: "Não foi possível atualizar o quadro societário." }, { status: 500 }));
+      }
+    }
   }
 
   const empresaCompleta = await buscarEmpresaCompletaPorId(supabase, id);

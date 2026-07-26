@@ -101,6 +101,16 @@ function normalizarParaComparacao(texto: string): string {
   return texto.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+// BrasilAPI e ReceitaWS formatam `logradouro` de forma diferente para o
+// mesmo endereço real (uma inclui prefixo tipo "R"/"Via de acesso", a outra
+// não) — sem isso, revalidar a carteira com o provedor "trocado" em relação
+// ao usado no cadastro original gera falso positivo de "Endereço" toda vez.
+const PREFIXOS_LOGRADOURO = /^(r\.?|rua|av\.?|avenida|al\.?|alameda|trav\.?|travessa|rod\.?|rodovia|pca\.?|praca|praça|estr\.?|estrada|via de acesso|acesso)\s+/;
+
+function normalizarEndereco(texto: string): string {
+  return normalizarParaComparacao(texto).replace(PREFIXOS_LOGRADOURO, "");
+}
+
 /**
  * Compara os dados salvos com a reconsulta à BrasilAPI. Só deve ser chamada
  * quando o chamador já tiver os dados atuais da BrasilAPI em mãos (reconsulta
@@ -121,7 +131,7 @@ export function avaliarRazaoSocialEEndereco(
     });
   }
 
-  if (normalizarParaComparacao(empresa.endereco) !== normalizarParaComparacao(dadosBrasilAPI.endereco)) {
+  if (normalizarEndereco(empresa.endereco) !== normalizarEndereco(dadosBrasilAPI.endereco)) {
     divergencias.push({
       empresaId: empresa.id,
       tipo: "Endereço",

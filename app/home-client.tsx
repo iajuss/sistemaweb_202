@@ -5,9 +5,9 @@ import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis
 import { extrairCNPJDoTexto, validarCNPJ } from "../lib/cnpj";
 import {
   atualizarEmpresa, atualizarModeloRecorrencia, atualizarTarefa, consultarCNPJ, criarModeloRecorrencia, criarTarefa,
-  executarAuditoria, excluirEmpresa, listarDivergencias, listarEmpresas, listarModelosRecorrencia, listarPerfis,
-  listarTarefas, salvarEmpresa, tratarDivergencia,
-  type Divergencia, type Empresa, type ModeloRecorrencia, type Periodicidade, type Tarefa,
+  executarAuditoria, excluirEmpresa, formatarSocio, listarDivergencias, listarEmpresas, listarModelosRecorrencia, listarPerfis,
+  listarTarefas, paraSocioPayload, salvarEmpresa, tratarDivergencia,
+  type Divergencia, type Empresa, type ModeloRecorrencia, type Periodicidade, type SocioPayload, type Tarefa,
 } from "../src/services/portfolio";
 
 type View = "Visão geral" | "Onboarding" | "Auditoria" | "Análise" | "Calendário" | "Configurações";
@@ -17,19 +17,87 @@ const nav: { label: View; icon: string }[] = [
 ];
 const cores = ["#2d6478", "#5d89a5", "#92b0bf", "#c8d9db", "#d9af72"];
 const formatDate = (date: string) => new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" }).format(new Date(`${date}T12:00:00`));
+/** Data/hora completas no horário de Brasília, independente do fuso do navegador — usado no histórico de divergências. */
+const formatDataHoraBrasilia = (isoComFuso: string) =>
+  new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(isoComFuso));
 /** Evita "...obrigatórios.. Tente novamente." quando a mensagem do servidor já termina em ponto. */
 const semPontoFinal = (mensagem: string) => mensagem.replace(/\.+$/, "");
 
-type EmpresaEditDraft = {
+type CamposCadastraisDraft = {
   cnpj: string; razaoSocial: string; fantasia: string; cidade: string; estado: string; endereco: string;
-  status: string; porte: string; cnaeCodigo: string; cnae: string; responsavelId: string; observacoes: string;
+  status: string; porte: string; cnaeCodigo: string; cnae: string; socios: SocioPayload[];
 };
+type EmpresaEditDraft = CamposCadastraisDraft & { responsavelId: string; observacoes: string };
 const paraEditDraft = (empresa: Empresa): EmpresaEditDraft => ({
   cnpj: empresa.cnpj, razaoSocial: empresa.razaoSocial, fantasia: empresa.fantasia, cidade: empresa.cidade, estado: empresa.estado,
   endereco: empresa.endereco, status: empresa.status, porte: empresa.porte,
-  cnaeCodigo: empresa.cnaeCodigo, cnae: empresa.cnae,
+  cnaeCodigo: empresa.cnaeCodigo, cnae: empresa.cnae, socios: empresa.socios.map(paraSocioPayload),
   responsavelId: empresa.responsavelId ?? "", observacoes: empresa.observacoes ?? "",
 });
+
+/** Lista editável de sócios (nome + cargo), dentro de um dropdown
+ * (`<details>`) para não ocupar espaço quando fechada. */
+function SociosField({ socios, setSocios }: { socios: SocioPayload[]; setSocios: (socios: SocioPayload[]) => void }) {
+  const atualizar = (indice: number, campo: "nome" | "papel", valor: string) => {
+    setSocios(socios.map((s, i) => (i === indice ? { ...s, [campo]: valor } : s)));
+  };
+  const remover = (indice: number) => setSocios(socios.filter((_, i) => i !== indice));
+  return <details className="socios-dropdown">
+    <summary>Quadro societário{socios.length > 0 ? ` (${socios.length})` : ""}</summary>
+    <div className="socios-list">
+      {socios.length === 0 && <p className="static-value">Nenhum sócio informado.</p>}
+      {socios.map((socio, i) => <div className="socio-row" key={i}>
+        <input placeholder="Nome" aria-label="Nome do sócio" value={socio.nome} onChange={(e) => atualizar(i, "nome", e.target.value)} />
+        <input placeholder="Cargo/qualificação" aria-label="Cargo do sócio" value={socio.papel} onChange={(e) => atualizar(i, "papel", e.target.value)} />
+        <button type="button" className="icon-button" aria-label={`Remover ${socio.nome || "sócio"}`} onClick={() => remover(i)}>×</button>
+      </div>)}
+      <button type="button" className="secondary" onClick={() => setSocios([...socios, { nome: "", papel: "" }])}>+ Adicionar sócio</button>
+    </div>
+  </details>;
+}
+
+/** Campos cadastrais compartilhados entre o modal de edição (empresa já
+ * persistida) e o modal de correção pré-cadastro (ainda não salva). */
+function CamposCadastraisFields<T extends CamposCadastraisDraft>({ draft, setDraft }: {
+  draft: T; setDraft: (draft: T) => void;
+}) {
+  return <>
+    <label className="full">CNPJ<input value={draft.cnpj} onChange={(e) => setDraft({ ...draft, cnpj: maskCNPJ(e.target.value) })} onPaste={(e: ClipboardEvent<HTMLInputElement>) => { e.preventDefault(); setDraft({ ...draft, cnpj: maskCNPJ(extrairCNPJDoTexto(e.clipboardData.getData("text"))) }); }} inputMode="numeric" /></label>
+    <label className="full">Razão social<input required value={draft.razaoSocial} onChange={(e) => setDraft({ ...draft, razaoSocial: e.target.value })} /></label>
+    <label className="full">Nome fantasia<input value={draft.fantasia} onChange={(e) => setDraft({ ...draft, fantasia: e.target.value })} /></label>
+    <label>Cidade<input value={draft.cidade} onChange={(e) => setDraft({ ...draft, cidade: e.target.value })} /></label>
+    <label>Estado<input maxLength={2} value={draft.estado} onChange={(e) => setDraft({ ...draft, estado: e.target.value.toUpperCase() })} /></label>
+    <label className="full">Endereço<input value={draft.endereco} onChange={(e) => setDraft({ ...draft, endereco: e.target.value })} /></label>
+    <label>Situação cadastral<select value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value })}><option value="Ativa">Ativa</option><option value="Suspensa">Suspensa</option><option value="Baixada">Baixada</option></select></label>
+    <label>Porte<input value={draft.porte} onChange={(e) => setDraft({ ...draft, porte: e.target.value })} /></label>
+    <label>Código CNAE<input value={draft.cnaeCodigo} onChange={(e) => setDraft({ ...draft, cnaeCodigo: e.target.value })} /></label>
+    <label className="full">Descrição do CNAE<input value={draft.cnae} onChange={(e) => setDraft({ ...draft, cnae: e.target.value })} /></label>
+    <div className="full"><SociosField socios={draft.socios} setSocios={(socios) => setDraft({ ...draft, socios })} /></div>
+  </>;
+}
+
+/** Modal de correção pré-cadastro: edita os dados vindos da consulta (BrasilAPI/
+ * ReceitaWS) antes de salvar na carteira. Não faz nenhuma chamada à API — só
+ * devolve o rascunho corrigido para o chamador mesclar no `result` local, já
+ * que a empresa ainda não existe no banco. */
+function EmpresaPreviewEditModal({ empresa, onClose, onSave }: {
+  empresa: Empresa; onClose: () => void; onSave: (dados: CamposCadastraisDraft) => void;
+}) {
+  const [draft, setDraft] = useState<CamposCadastraisDraft>(() => ({
+    cnpj: empresa.cnpj, razaoSocial: empresa.razaoSocial, fantasia: empresa.fantasia, cidade: empresa.cidade, estado: empresa.estado,
+    endereco: empresa.endereco, status: empresa.status, porte: empresa.porte, cnaeCodigo: empresa.cnaeCodigo, cnae: empresa.cnae,
+    socios: empresa.socios.map(paraSocioPayload),
+  }));
+  const cnpjValido = validarCNPJ(draft.cnpj);
+  const salvar = (e: FormEvent) => {
+    e.preventDefault();
+    if (!cnpjValido) return;
+    onSave({ ...draft, cnpj: draft.cnpj.replace(/\D/g, "") });
+  };
+  return <div className="modal-layer" role="dialog" aria-modal="true" aria-label={`Editar dados de ${empresa.razaoSocial}`}><form className="modal" onSubmit={salvar}><button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button><h2>Editar dados antes de salvar</h2><div className="field-grid">
+    <CamposCadastraisFields draft={draft} setDraft={setDraft} />
+  </div>{!cnpjValido && <div className="notice error"><p>CNPJ inválido — confira os números antes de salvar.</p></div>}<button className="primary" disabled={!cnpjValido}>Aplicar alterações</button></form></div>;
+}
 const maskCNPJ = (v: string) => v.replace(/\D/g, "").slice(0, 14).replace(/(\d{2})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1/$2").replace(/(\d{4})(\d{1,2})$/, "$1-$2");
 
 /** Roda uma revalidação interna (sem BrasilAPI) e recarrega as divergências.
@@ -62,7 +130,7 @@ function EmpresaEditModal({ empresa, perfis, onClose, onSaved }: {
       const atualizada = await atualizarEmpresa(empresa.id, {
         cnpj: draft.cnpj.replace(/\D/g, ""), razaoSocial: draft.razaoSocial, fantasia: draft.fantasia, cidade: draft.cidade, estado: draft.estado,
         endereco: draft.endereco, situacaoCadastral: draft.status, porte: draft.porte,
-        cnaeCodigo: draft.cnaeCodigo, cnaeDescricao: draft.cnae,
+        cnaeCodigo: draft.cnaeCodigo, cnaeDescricao: draft.cnae, socios: draft.socios,
         responsavelId: draft.responsavelId || null, observacoes: draft.observacoes,
       });
       onSaved(atualizada);
@@ -73,16 +141,7 @@ function EmpresaEditModal({ empresa, perfis, onClose, onSaved }: {
     }
   };
   return <div className="modal-layer" role="dialog" aria-modal="true" aria-label={`Editar ${empresa.razaoSocial}`}><form className="modal" onSubmit={save}><button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button><h2>Editar empresa</h2><div className="field-grid">
-    <label className="full">CNPJ<input value={draft.cnpj} onChange={(e) => setDraft({ ...draft, cnpj: maskCNPJ(e.target.value) })} onPaste={(e: ClipboardEvent<HTMLInputElement>) => { e.preventDefault(); setDraft({ ...draft, cnpj: maskCNPJ(extrairCNPJDoTexto(e.clipboardData.getData("text"))) }); }} inputMode="numeric" /></label>
-    <label className="full">Razão social<input required value={draft.razaoSocial} onChange={(e) => setDraft({ ...draft, razaoSocial: e.target.value })} /></label>
-    <label className="full">Nome fantasia<input value={draft.fantasia} onChange={(e) => setDraft({ ...draft, fantasia: e.target.value })} /></label>
-    <label>Cidade<input value={draft.cidade} onChange={(e) => setDraft({ ...draft, cidade: e.target.value })} /></label>
-    <label>Estado<input maxLength={2} value={draft.estado} onChange={(e) => setDraft({ ...draft, estado: e.target.value.toUpperCase() })} /></label>
-    <label className="full">Endereço<input value={draft.endereco} onChange={(e) => setDraft({ ...draft, endereco: e.target.value })} /></label>
-    <label>Situação cadastral<select value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value })}><option value="Ativa">Ativa</option><option value="Suspensa">Suspensa</option><option value="Baixada">Baixada</option></select></label>
-    <label>Porte<input value={draft.porte} onChange={(e) => setDraft({ ...draft, porte: e.target.value })} /></label>
-    <label>Código CNAE<input value={draft.cnaeCodigo} onChange={(e) => setDraft({ ...draft, cnaeCodigo: e.target.value })} /></label>
-    <label className="full">Descrição do CNAE<input value={draft.cnae} onChange={(e) => setDraft({ ...draft, cnae: e.target.value })} /></label>
+    <CamposCadastraisFields draft={draft} setDraft={setDraft} />
     <label className="full">Responsável interno<select value={draft.responsavelId} onChange={(e) => setDraft({ ...draft, responsavelId: e.target.value })}><option value="">Selecione…</option>{perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label>
     <label className="full">Observações internas<textarea value={draft.observacoes} onChange={(e) => setDraft({ ...draft, observacoes: e.target.value })} /></label>
   </div>{!cnpjValido && <div className="notice error"><p>CNPJ inválido — confira os números antes de salvar.</p></div>}{error && <div className="notice error"><p>{error}</p></div>}<button className="primary" disabled={saving || !cnpjValido}>{saving ? "Salvando…" : "Salvar alterações"}</button></form></div>;
@@ -90,6 +149,10 @@ function EmpresaEditModal({ empresa, perfis, onClose, onSaved }: {
 
 function Badge({ children, tone = "neutral" }: { children: ReactNode; tone?: string }) {
   return <span className={`badge ${tone}`}>{children}</span>;
+}
+
+function statusTone(status: string): "success" | "warning" | "danger" {
+  return status === "Ativa" ? "success" : status === "Suspensa" ? "warning" : "danger";
 }
 
 function Card({ title, value, helper, icon }: { title: string; value: string | number; helper: string; icon: string }) {
@@ -245,6 +308,12 @@ function Onboarding({ companies, setCompanies, perfis, userName, setIssues }: {
   setIssues: (issues: Divergencia[]) => void;
 }) {
   const [cnpj, setCnpj] = useState(""); const [result, setResult] = useState<Empresa | null>(null); const [state, setState] = useState<"idle" | "loading" | "error" | "success">("idle"); const [message, setMessage] = useState(""); const [query, setQuery] = useState("");
+  const [toastVisible, setToastVisible] = useState(false);
+  useEffect(() => {
+    if (!toastVisible) return;
+    const id = setTimeout(() => setToastVisible(false), 3000);
+    return () => clearTimeout(id);
+  }, [toastVisible]);
   const [saving, setSaving] = useState(false); const [saveError, setSaveError] = useState("");
   const [responsavelId, setResponsavelId] = useState(""); const [observacoes, setObservacoes] = useState("");
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
@@ -257,6 +326,7 @@ function Onboarding({ companies, setCompanies, perfis, userName, setIssues }: {
   };
   const closeMenu = () => { setMenuOpenId(null); setMenuAnchor(null); };
   const [editing, setEditing] = useState<Empresa | null>(null);
+  const [editingPreview, setEditingPreview] = useState(false);
   const [deleting, setDeleting] = useState<Empresa | null>(null);
   const [deleteSaving, setDeleteSaving] = useState(false); const [deleteError, setDeleteError] = useState("");
   const lookup = async (e: FormEvent) => {
@@ -286,6 +356,7 @@ function Onboarding({ companies, setCompanies, perfis, userName, setIssues }: {
       const atualizadas = await listarEmpresas();
       setCompanies(atualizadas);
       setMessage("Empresa salva na carteira com sucesso.");
+      setToastVisible(true);
     } catch {
       // A empresa JÁ foi persistida no passo anterior — só a atualização da
       // lista falhou. Não reusar a mensagem de "não foi possível salvar"
@@ -322,10 +393,11 @@ function Onboarding({ companies, setCompanies, perfis, userName, setIssues }: {
   return <>
     <section className="section-head"><div><h2>Novo cadastro</h2><p>Consulte o CNPJ para começar com os dados preenchidos.</p></div></section>
     <section className="panel onboarding"><form onSubmit={lookup}><label htmlFor="cnpj">CNPJ da empresa</label><div className="search-row"><input id="cnpj" value={cnpj} onChange={(e) => setCnpj(maskCNPJ(e.target.value))} onPaste={(e: ClipboardEvent<HTMLInputElement>) => { e.preventDefault(); setCnpj(maskCNPJ(extrairCNPJDoTexto(e.clipboardData.getData("text")))); }} placeholder="00.000.000/0000-00" inputMode="numeric" /><button className="primary" disabled={state === "loading"}>{state === "loading" ? "Consultando…" : "Consultar"}</button></div><small>Consulta via BrasilAPI.</small></form>{state === "error" && <div className="notice error"><strong>Não encontramos esse CNPJ</strong><p>{message}</p></div>}</section>
-    {result && <section className="detail-card"><div className="detail-heading"><div><Badge tone="success">{result.status}</Badge><h2>{result.razaoSocial}</h2><p>{result.fantasia} · CNPJ {result.cnpj}</p></div><button className="primary" onClick={save} disabled={saving}>{saving ? "Salvando…" : "Salvar na carteira"}</button></div>{saveError && <div className="notice error"><p>{saveError}</p></div>}<div className="details"><div><span>Endereço</span><strong>{result.endereco}, {result.cidade}/{result.estado}</strong></div><div><span>CNAE principal</span><strong>{result.cnaeCodigo} · {result.cnae}</strong></div><div><span>Porte</span><strong>{result.porte}</strong></div><div><span>Responsável interno</span><select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)}>{perfis.length > 0 ? <><option value="">Selecione…</option>{perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</> : <option value="">{userName}</option>}</select></div><div className="full"><span>Quadro societário</span><strong>{result.socios.join(" · ")}</strong></div><div className="full"><label htmlFor="obs">Observações internas</label><textarea id="obs" value={observacoes} onChange={(e) => setObservacoes(e.target.value)} placeholder="Inclua orientações para o time responsável…" /></div></div></section>}
-    {message.includes("sucesso") && <div className="toast">✓ {message}</div>}
+    {result && <section className="detail-card"><div className="detail-heading"><div><Badge tone={statusTone(result.status)}>{result.status}</Badge><h2>{result.razaoSocial}</h2><p>{result.fantasia} · CNPJ {result.cnpj}</p></div><div className="detail-actions"><button type="button" className="secondary" onClick={() => setEditingPreview(true)}>Editar dados</button><button className="primary" onClick={save} disabled={saving}>{saving ? "Salvando…" : "Salvar na carteira"}</button></div></div>
+    {editingPreview && result && <EmpresaPreviewEditModal empresa={result} onClose={() => setEditingPreview(false)} onSave={(dados) => { setResult({ ...result, ...dados, status: dados.status as Empresa["status"], porte: dados.porte as Empresa["porte"], socios: dados.socios.map(formatarSocio) }); setEditingPreview(false); }} />}{saveError && <div className="notice error"><p>{saveError}</p></div>}<div className="details"><div><span>Endereço</span><strong>{result.endereco}, {result.cidade}/{result.estado}</strong></div><div><span>CNAE principal</span><strong>{result.cnaeCodigo || result.cnae ? `${result.cnaeCodigo} · ${result.cnae}` : "Não informado pela consulta"}</strong></div><div><span>Porte</span><strong>{result.porte}</strong></div><div><span>Responsável interno</span><select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)}>{perfis.length > 0 ? <><option value="">Selecione…</option>{perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</> : <option value="">{userName}</option>}</select></div><div className="full"><details className="socios-dropdown"><summary>Quadro societário{result.socios.length > 0 ? ` (${result.socios.length})` : ""}</summary><div className="socios-list">{result.socios.length > 0 ? result.socios.map((s, i) => <p key={i} className="static-value">{s}</p>) : <p className="static-value">Nenhum sócio informado.</p>}</div></details></div><div className="full"><label htmlFor="obs">Observações internas</label><textarea id="obs" value={observacoes} onChange={(e) => setObservacoes(e.target.value)} placeholder="Inclua orientações para o time responsável…" /></div></div></section>}
+    {toastVisible && <div className="toast"><span>✓ {message}</span><button type="button" className="toast-close" aria-label="Fechar aviso" onClick={() => setToastVisible(false)}>×</button></div>}
     <section className="section-head table-head"><div><h2>Cadastros na carteira</h2><p>{companies.length} empresas registradas</p></div><input aria-label="Buscar empresa" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por empresa ou CNPJ" /></section>
-    <section className="panel table-wrap"><table><thead><tr><th>Empresa</th><th>CNPJ</th><th>Localidade</th><th>Situação</th><th>Responsável</th><th></th></tr></thead><tbody>{listed.slice(0, 8).map((c) => <tr key={c.id}><td><strong>{c.razaoSocial}</strong><small>{c.fantasia}</small></td><td>{c.cnpj}</td><td>{c.cidade}/{c.estado}</td><td><Badge tone={c.status === "Ativa" ? "success" : c.status === "Suspensa" ? "warning" : "danger"}>{c.status}</Badge></td><td>{c.responsavel}</td><td className="row-menu"><button className="icon-button" aria-label={`Mais opções — ${c.razaoSocial}`} onClick={(e) => toggleMenu(c.id, e.currentTarget)}>⋯</button>{menuOpenId === c.id && menuAnchor && <>
+    <section className="panel table-wrap"><table><thead><tr><th>Empresa</th><th>CNPJ</th><th>Localidade</th><th>Situação</th><th>Responsável</th><th></th></tr></thead><tbody>{listed.map((c) => <tr key={c.id}><td><strong>{c.razaoSocial}</strong><small>{c.fantasia}</small></td><td>{c.cnpj}</td><td>{c.cidade}/{c.estado}</td><td><Badge tone={statusTone(c.status)}>{c.status}</Badge></td><td>{c.responsavel}</td><td className="row-menu"><button className="icon-button" aria-label={`Mais opções — ${c.razaoSocial}`} onClick={(e) => toggleMenu(c.id, e.currentTarget)}>⋯</button>{menuOpenId === c.id && menuAnchor && <>
       <button type="button" className="menu-backdrop" aria-label="Fechar menu" onClick={closeMenu} />
       <div className="dropdown-menu" role="menu" style={{ top: menuAnchor.top, right: menuAnchor.right }}><button type="button" role="menuitem" onClick={() => openEdit(c)}>Editar</button><button type="button" role="menuitem" className="danger" onClick={() => { closeMenu(); setDeleting(c); setDeleteError(""); }}>Excluir</button></div>
     </>}</td></tr>)}</tbody></table>{listed.length === 0 && <Empty />}</section>
@@ -379,14 +451,18 @@ function Audit({ issues, setIssues, companies, setCompanies, perfis }: {
   issues: Divergencia[]; setIssues: (issues: Divergencia[]) => void;
   companies: Empresa[]; setCompanies: (value: Empresa[]) => void; perfis: { id: string; nome: string }[];
 }) {
-  const [type, setType] = useState("Todos"); const [status, setStatus] = useState("Todos");
+  const [type, setType] = useState("Todos"); const [status, setStatus] = useState("Pendente");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [revalidating, setRevalidating] = useState(false);
   const [actionError, setActionError] = useState("");
   const [corrigindo, setCorrigindo] = useState<Empresa | null>(null);
   const [duplicidade, setDuplicidade] = useState<Divergencia | null>(null);
   const types = ["Todos", ...Array.from(new Set(issues.map((d) => d.tipo)))];
-  const filtered = issues.filter((i) => (type === "Todos" || i.tipo === type) && (status === "Todos" || i.status === status));
+  const filtered = issues
+    .filter((i) => (type === "Todos" || i.tipo === type) && (status === "Todos" || i.status === status))
+    // Mais recentes primeiro — usa `resolvidoEm` quando existe (histórico de
+    // tratadas), senão `detectadoEm` (ainda pendentes).
+    .sort((a, b) => new Date(b.resolvidoEm ?? b.detectadoEm).getTime() - new Date(a.resolvidoEm ?? a.detectadoEm).getTime());
 
   const refetch = async (falhaParcial: string) => {
     try {
@@ -410,6 +486,17 @@ function Audit({ issues, setIssues, companies, setCompanies, perfis }: {
       setActionError(`${semPontoFinal(bruta)}. Tente novamente.`);
       setUpdatingId(null);
       return;
+    }
+    if (acao === "aplicar_sugestao") {
+      // "aplicar_sugestao" escreve o valor sugerido direto na empresa — sem
+      // recarregar `companies` aqui, a tela (tabela do Onboarding, outros
+      // cards) continuaria mostrando o dado antigo mesmo com a correção já
+      // persistida no banco.
+      try {
+        setCompanies(await listarEmpresas());
+      } catch {
+        setActionError("Sugestão aplicada, mas não foi possível atualizar a lista de empresas. Atualize a página.");
+      }
     }
     await refetch("Divergência atualizada, mas não foi possível atualizar a lista. Atualize a página.");
     setUpdatingId(null);
@@ -455,13 +542,15 @@ function Audit({ issues, setIssues, companies, setCompanies, perfis }: {
       </div>
     </section>
     {actionError && <div className="notice error"><p>{actionError}</p></div>}
-    <section className="audit-summary">{types.slice(1).map((t) => <article key={t}><span>{t === "CNPJ inválido" ? "#" : "!"}</span><strong>{issues.filter((i) => i.tipo === t).length}</strong><p>{t}</p></article>)}</section>
+    <section className="audit-summary">{types.slice(1).map((t) => <article key={t}><span>{t === "CNPJ inválido" ? "#" : "!"}</span><strong>{issues.filter((i) => i.tipo === t && (status === "Todos" || i.status === status)).length}</strong><p>{t}</p></article>)}</section>
     <section className="filters"><label>Tipo<select value={type} onChange={(e) => setType(e.target.value)}>{types.map((t) => <option key={t}>{t}</option>)}</select></label><label>Tratamento<select value={status} onChange={(e) => setStatus(e.target.value)}>{["Todos", "Pendente", "Revisado", "Ignorado"].map((s) => <option key={s}>{s}</option>)}</select></label></section>
-    <section className="panel table-wrap"><table className="audit-table"><thead><tr><th>Empresa</th><th>Ocorrência</th><th>Valor atual</th><th>Sugestão</th><th>Status</th><th>Ações</th></tr></thead><tbody>{filtered.map((i) => { const empresaDaLinha = companies.find((c) => c.id === i.empresaId); return <tr key={i.id}><td><strong>{i.empresa}</strong></td><td><Badge tone="neutral">{i.tipo}</Badge></td><td>{i.atual}</td><td>{i.sugerido || "—"}</td><td><Badge tone={i.status === "Pendente" ? "warning" : i.status === "Revisado" ? "success" : "neutral"}>{i.status}</Badge></td><td className="actions">
-      {i.tipo === "Duplicidade" && <button onClick={() => setDuplicidade(i)} disabled={updatingId === i.id}>Resolver duplicidade</button>}
-      {TIPOS_CORRIGIVEIS_NO_CADASTRO.has(i.tipo) && <button onClick={() => empresaDaLinha && setCorrigindo(empresaDaLinha)} disabled={updatingId === i.id || !empresaDaLinha}>Corrigir cadastro</button>}
-      {i.sugerido && <button onClick={() => update(i.id, "aplicar_sugestao")} disabled={updatingId === i.id}>Aplicar sugestão</button>}
-      <button onClick={() => update(i.id, "ignorar")} disabled={updatingId === i.id}>Ignorar</button>
+    <section className="panel table-wrap"><table className="audit-table"><thead><tr><th>Empresa</th><th>Ocorrência</th><th>Valor atual</th><th>Sugestão</th><th>Status</th><th>Ações</th></tr></thead><tbody>{filtered.map((i) => { const empresaDaLinha = companies.find((c) => c.id === i.empresaId); return <tr key={i.id}><td><strong>{i.empresa}</strong></td><td><Badge tone="neutral">{i.tipo}</Badge></td><td>{i.atual}{i.status === "Revisado" && i.sugerido && <><br /><small className="static-value">corrigido para: {i.sugerido}</small></>}</td><td>{i.sugerido || "—"}</td><td><Badge tone={i.status === "Pendente" ? "warning" : i.status === "Revisado" ? "success" : "neutral"}>{i.status}</Badge><br /><small className="static-value">{formatDataHoraBrasilia(i.resolvidoEm ?? i.detectadoEm)}</small></td><td className="actions">
+      {i.status !== "Revisado" ? <>
+        {i.tipo === "Duplicidade" && <button onClick={() => setDuplicidade(i)} disabled={updatingId === i.id}>Resolver duplicidade</button>}
+        {TIPOS_CORRIGIVEIS_NO_CADASTRO.has(i.tipo) && <button onClick={() => empresaDaLinha && setCorrigindo(empresaDaLinha)} disabled={updatingId === i.id || !empresaDaLinha}>Corrigir cadastro</button>}
+        {i.sugerido && <button onClick={() => update(i.id, "aplicar_sugestao")} disabled={updatingId === i.id}>Aplicar sugestão</button>}
+        {i.status === "Pendente" && <button onClick={() => update(i.id, "ignorar")} disabled={updatingId === i.id}>Ignorar</button>}
+      </> : "—"}
     </td></tr>; })}</tbody></table>{filtered.length === 0 && <Empty title="Nenhuma ocorrência neste filtro" text="As divergências tratadas continuam disponíveis no histórico." />}</section>
     {corrigindo && <EmpresaEditModal empresa={corrigindo} perfis={perfis} onClose={() => setCorrigindo(null)} onSaved={handleCadastroCorrigido} />}
     {duplicidade && <ResolverDuplicidade divergencia={duplicidade} companies={companies} onClose={() => setDuplicidade(null)} onResolved={handleDuplicidadeResolvida} />}

@@ -1,6 +1,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { validarCNPJ } from "@/lib/cnpj";
-import { consultarCNPJNaBrasilAPI, BrasilAPIError } from "@/lib/brasilapi";
+import { BrasilAPIError } from "@/lib/brasilapi";
+import { consultarCNPJComCache } from "@/lib/cnpj-cache";
 
 export async function POST(request: Request) {
   const supabase = await createSupabaseServerClient();
@@ -26,7 +27,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const empresa = await consultarCNPJNaBrasilAPI(cnpj);
+    const empresa = await consultarCNPJComCache(supabase, cnpj);
     return Response.json(empresa, { status: 200 });
   } catch (err) {
     if (err instanceof BrasilAPIError) {

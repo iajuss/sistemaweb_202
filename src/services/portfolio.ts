@@ -41,6 +41,8 @@ export type Divergencia = {
   sugerido?: string;
   status: "Pendente" | "Revisado" | "Ignorado";
   empresaRelacionada?: EmpresaRelacionada | null;
+  detectadoEm: string;
+  resolvidoEm: string | null;
 };
 
 export type Tarefa = {
@@ -74,16 +76,16 @@ export type ModeloRecorrencia = {
   criadoEm?: string;
 };
 
-type SocioPayload = { nome: string; papel: string };
+export type SocioPayload = { nome: string; papel: string };
 
 /** "Nome" + "Papel" (do BrasilAPI/lib/empresas.ts) → "Nome (Papel)" para exibição. */
-function formatarSocio(socio: SocioPayload): string {
+export function formatarSocio(socio: SocioPayload): string {
   return socio.papel && socio.papel.trim() !== "" ? `${socio.nome} (${socio.papel})` : socio.nome;
 }
 
 /** Inverso de `formatarSocio`, usado ao reenviar `Empresa.socios` (string[])
  * para o backend, que espera `{ nome, papel }[]` no corpo de POST/PATCH. */
-function paraSocioPayload(socioFormatado: string): SocioPayload {
+export function paraSocioPayload(socioFormatado: string): SocioPayload {
   const match = socioFormatado.match(/^(.*) \(([^()]*)\)$/);
   if (match) {
     return { nome: match[1], papel: match[2] };
@@ -206,6 +208,7 @@ export type EmpresaPatch = Partial<{
   responsavelId: string | null;
   observacoes: string;
   tags: string[];
+  socios: SocioPayload[];
 }>;
 
 /** PATCH /api/empresas/:id — atualização parcial (campos no shape do servidor). */

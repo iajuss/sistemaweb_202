@@ -3,6 +3,7 @@ import {
   boolean,
   date,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -113,4 +114,10 @@ export const feriadosCache = pgTable("feriados_cache", {
   data: date("data").primaryKey(),
   nome: text("nome").notNull(),
   ano: integer("ano").notNull(),
+});
+
+export const cnpjCache = pgTable("cnpj_cache", {
+  cnpj: text("cnpj").primaryKey(),
+  dados: jsonb("dados").notNull(),
+  consultadoEm: timestamp("consultado_em", { withTimezone: true }).notNull().default(sql`now()`),
 });
