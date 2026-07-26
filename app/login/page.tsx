@@ -7,6 +7,10 @@ export default function LoginPage() {
   const [senha, setSenha] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [recoveryEmail, setRecoveryEmail] = useState("");
+  const [recoveryMessage, setRecoveryMessage] = useState("");
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -32,6 +36,21 @@ export default function LoginPage() {
     window.location.href = "/";
   };
 
+  const requestPasswordReset = async (event: FormEvent) => {
+    event.preventDefault();
+    setRecoveryLoading(true);
+    setRecoveryMessage("");
+
+    const response = await fetch("/api/auth/password-reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: recoveryEmail }),
+    });
+    const data = (await response.json()) as { error?: string; message?: string };
+    setRecoveryMessage(data.message ?? data.error ?? "Não foi possível solicitar a redefinição.");
+    setRecoveryLoading(false);
+  };
+
   return (
     <main className="auth-page">
       <section className="auth-showcase" aria-label="Controle de Carteira">
@@ -53,9 +72,11 @@ export default function LoginPage() {
           <form className="login-form" onSubmit={submit}>
             <label htmlFor="email">E-mail<input id="email" type="email" autoComplete="email" placeholder="voce@escritorio.com.br" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
             <label htmlFor="senha">Senha<input id="senha" type="password" autoComplete="current-password" placeholder="Digite sua senha" required value={senha} onChange={(e) => setSenha(e.target.value)} /></label>
+            <button className="forgot-password" type="button" onClick={() => { setRecoveryOpen((open) => !open); setRecoveryEmail(email); setRecoveryMessage(""); }}>Esqueci a senha</button>
             {error && <div className="notice error" role="alert"><p>{error}</p></div>}
             <button className="login-submit" disabled={loading}>{loading ? "Entrando…" : "Entrar na plataforma"}<span aria-hidden="true">→</span></button>
           </form>
+          {recoveryOpen && <form className="password-recovery" onSubmit={requestPasswordReset}><strong>Redefinir senha</strong><p>Informe seu e-mail para receber um link de redefinição.</p><label htmlFor="recovery-email">E-mail<input id="recovery-email" type="email" autoComplete="email" placeholder="voce@escritorio.com.br" required value={recoveryEmail} onChange={(e) => setRecoveryEmail(e.target.value)} /></label><button className="recovery-submit" disabled={recoveryLoading}>{recoveryLoading ? "Enviando…" : "Enviar link"}</button>{recoveryMessage && <p className="recovery-message" role="status">{recoveryMessage}</p>}</form>}
           <div className="login-divider"><span>ou</span></div>
           <a className="signup-link" href="/signup"><span>✦</span><span><strong>Primeiro acesso?</strong><small>Cadastre seu escritório gratuitamente</small></span><b aria-hidden="true">→</b></a>
         </div>
