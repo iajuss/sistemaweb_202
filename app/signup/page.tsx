@@ -34,42 +34,24 @@ export default function SignupPage() {
   };
 
   return (
-    <main className="app-shell">
-      <section className="panel onboarding" style={{ maxWidth: 400, margin: "80px auto" }}>
-        <h2>Cadastrar escritório</h2>
-        <form onSubmit={submit}>
-          <label htmlFor="escritorioNome">Nome do escritório</label>
-          <input
-            id="escritorioNome"
-            required
-            value={escritorioNome}
-            onChange={(e) => setEscritorioNome(e.target.value)}
-          />
-          <label htmlFor="nome">Seu nome</label>
-          <input id="nome" required value={nome} onChange={(e) => setNome(e.target.value)} />
-          <label htmlFor="email">E-mail</label>
-          <input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
-          <label htmlFor="senha">Senha (mínimo 8 caracteres)</label>
-          <input
-            id="senha"
-            type="password"
-            required
-            minLength={8}
-            value={senha}
-            onChange={(e) => setSenha(e.target.value)}
-          />
-          {error && (
-            <div className="notice error">
-              <p>{error}</p>
-            </div>
-          )}
-          <button className="primary" disabled={loading}>
-            {loading ? "Criando…" : "Criar conta"}
-          </button>
-        </form>
-        <p>
-          Já tem conta? <a href="/login">Entrar</a>
-        </p>
+    <main className="auth-page auth-page-signup">
+      <section className="auth-showcase signup-showcase" aria-label="Controle de Carteira">
+        <a className="auth-brand" href="/login"><span>▣</span> Controle de carteira</a>
+        <div className="auth-showcase-copy"><p className="auth-kicker">Comece sua organização</p><h1>Uma carteira bem gerida começa aqui.</h1><p>Crie o acesso do seu escritório e tenha uma visão única de clientes, tarefas e obrigações.</p></div>
+      </section>
+      <section className="auth-access">
+        <div className="login-card signup-card">
+          <div className="login-heading signup-heading"><h2>Cadastre seu escritório</h2></div>
+          <form className="login-form signup-form" onSubmit={submit}>
+            <label htmlFor="escritorioNome">Nome do escritório<input id="escritorioNome" autoComplete="organization" placeholder="Ex.: Escritório Contábil Silva" required value={escritorioNome} onChange={(e) => setEscritorioNome(e.target.value)} /></label>
+            <label htmlFor="nome">Seu nome<input id="nome" autoComplete="name" placeholder="Como podemos chamar você?" required value={nome} onChange={(e) => setNome(e.target.value)} /></label>
+            <label htmlFor="email">E-mail<input id="email" type="email" autoComplete="email" placeholder="voce@escritorio.com.br" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+            <label htmlFor="senha">Senha<input id="senha" type="password" autoComplete="new-password" placeholder="Mínimo de 8 caracteres" required minLength={8} value={senha} onChange={(e) => setSenha(e.target.value)} /></label>
+            {error && <div className="notice error" role="alert"><p>{error}</p></div>}
+            <button className="login-submit" disabled={loading}>{loading ? "Criando conta…" : "Criar minha conta"}<span aria-hidden="true">→</span></button>
+          </form>
+          <a className="signup-link" href="/login"><span>→</span><span><strong>Já possui uma conta?</strong><small>Entre com seu e-mail e senha</small></span><b aria-hidden="true">→</b></a>
+        </div>
       </section>
     </main>
   );
