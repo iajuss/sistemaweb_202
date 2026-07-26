@@ -82,3 +82,49 @@ html[data-theme="dark"][data-vision="colorblind"] .calendar-task.late{background
 
 @media(min-width:761px){.auth-page:not(.auth-page-signup) .auth-showcase-copy{margin:clamp(80px,10vh,112px) 0 28px}.auth-page:not(.auth-page-signup) .auth-benefits{margin-top:0}}
 .forgot-password{justify-self:start;border:0;background:transparent;color:var(--primary);font-size:12px;font-weight:750;padding:0;margin-top:-7px;text-decoration:underline;text-underline-offset:3px}.forgot-password:hover{color:var(--primary-dark)}.password-recovery{display:grid;gap:10px;margin-top:18px;padding:15px;border:1px solid #d8e5e7;border-radius:11px;background:#f7fbfb}.password-recovery strong{font-size:13px;color:#264c59}.password-recovery p{margin:0;color:var(--muted);font-size:12px;line-height:1.45}.password-recovery label{display:grid;gap:6px;color:#354a51;font-size:12px;font-weight:750}.password-recovery input{height:42px}.recovery-submit{justify-self:start;border:0;border-radius:7px;background:#2d6478;color:#fff;padding:9px 13px;font-size:12px;font-weight:750}.recovery-submit:disabled{opacity:.7;cursor:wait}.recovery-message{color:#286479!important}.password-recovery+.login-divider{margin-top:18px}html[data-theme="dark"] .password-recovery{background:#173039;border-color:#41616b}html[data-theme="dark"] .password-recovery strong{color:#d8e8eb}html[data-theme="dark"] .password-recovery label{color:#cfdee1}
+
+/* ===== Calendário: navegação de mês/ano, toggle de natureza, popover de detalhes ===== */
+.calendar-nav{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.calendar-nav-group{display:flex;align-items:center;gap:6px}
+.calendar-nav-label{display:flex;flex-direction:column;align-items:center;line-height:1.1}
+.calendar-nav-label strong{font-size:15px;color:var(--text);text-transform:capitalize}
+.calendar-nav-label span{font-size:12px;color:var(--muted)}
+.nav-arrow{border:1px solid var(--border);background:#fff;color:var(--primary);width:32px;height:32px;border-radius:8px;font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.nav-arrow:hover{background:#f3f6f6}
+.nav-today{border:1px solid var(--border);background:#fff;color:var(--primary);height:32px;padding:0 12px;border-radius:8px;font-size:12px;font-weight:bold;cursor:pointer;margin-left:4px}
+.nav-today:hover{background:#f3f6f6}
+.day.is-today{outline:2px solid var(--primary);outline-offset:-2px}
+.day.is-today>span{color:var(--primary);font-weight:bold}
+.calendar-task.done{opacity:.6;text-decoration:line-through}
+.field-block{display:grid;gap:7px}
+.field-label{font-size:12px;font-weight:bold;color:var(--muted)}
+.field-hint{font-size:11px;color:var(--muted)}
+.segmented{display:flex;background:#e7eeee;padding:3px;border-radius:8px;gap:2px}
+.segmented button{flex:1;background:transparent;border:0;padding:8px 10px;border-radius:6px;color:#62767d;font-size:12px;font-weight:bold;cursor:pointer}
+.segmented button.selected{background:#fff;color:var(--primary);box-shadow:0 1px 3px #cbd8d8}
+.inline-error{margin:0;color:#b4453d;font-size:12px;font-weight:600}
+.task-popover{position:fixed;z-index:50;background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);width:min(280px,calc(100vw - 24px));padding:14px;display:grid;gap:10px}
+.task-popover-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.task-popover-head strong{font-size:14px;color:var(--text);line-height:1.3}
+.task-popover-head .close{position:static;background:transparent;border:0;font-size:18px;color:var(--muted);cursor:pointer;line-height:1}
+.task-popover-body{display:grid;gap:7px;margin:0}
+.task-popover-body>div{display:flex;justify-content:space-between;gap:12px;align-items:center}
+.task-popover-body dt{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.task-popover-body dd{margin:0;font-size:12px;color:var(--text);font-weight:600;text-align:right}
+.task-popover-holiday{margin:0;font-size:11px;color:#ae7619;background:#fff9ed;padding:6px 8px;border-radius:6px}
+.task-popover-actions{display:flex;gap:6px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:10px}
+.task-popover-actions button{flex:1;min-width:72px;border:1px solid var(--border);background:#fff;color:#33454b;border-radius:7px;padding:7px 8px;font-size:12px;font-weight:600;cursor:pointer}
+.task-popover-actions button:hover{background:#f3f6f6}
+.task-popover-actions button.danger{color:#b4453d;border-color:#e6c4c1}
+html[data-theme="dark"] .nav-arrow,html[data-theme="dark"] .nav-today{background:#152a31;border-color:#41616b;color:#88c0d0}
+html[data-theme="dark"] .nav-arrow:hover,html[data-theme="dark"] .nav-today:hover{background:#1c333c}
+html[data-theme="dark"] .segmented{background:#203941}
+html[data-theme="dark"] .segmented button{color:#b5c8cd}
+html[data-theme="dark"] .segmented button.selected{background:#182d35;color:#86c0cf;box-shadow:0 1px 3px #0b171b}
+html[data-theme="dark"] .task-popover{background:var(--surface);border-color:var(--border)}
+html[data-theme="dark"] .task-popover-head strong,html[data-theme="dark"] .task-popover-body dd{color:var(--text)}
+html[data-theme="dark"] .task-popover-actions button{background:#152a31;border-color:#41616b;color:#c9dade}
+html[data-theme="dark"] .task-popover-actions button:hover{background:#1c333c}
+html[data-theme="dark"] .task-popover-holiday{background:#3a2f1c;color:#e6c07b}
+html[data-theme="dark"] .inline-error{color:#ffb9b2}
+.chart-grid-loading{padding:48px 16px;text-align:center;color:var(--muted);font-size:13px;font-weight:600}

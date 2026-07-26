@@ -5,17 +5,23 @@ const VENCIMENTO_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const STATUS_VALIDOS: StatusTarefa[] = ["Pendente", "Concluída"];
 
 type TarefaPatchPayload = {
+  titulo?: string;
+  tipo?: string;
+  empresaId?: string | null;
+  responsavelId?: string | null;
   status?: string;
   vencimento?: string;
 };
 
-// PATCH /api/tarefas/:id — usado para marcar uma tarefa como concluída ou
-// reagendar manualmente (inclusive quando o vencimento coincide com um
-// feriado: o sistema só alerta, quem decide mover a data é o usuário via
-// este PATCH). `concluido_em` é setado quando `status` vira "Concluída" e
-// limpo quando volta para "Pendente". RLS garante que só é possível
-// atualizar tarefas do próprio escritório; id inexistente ou bloqueado por
-// RLS responde 404 (não 403, mesmo padrão de `PATCH /api/empresas/:id`).
+// PATCH /api/tarefas/:id — usado para marcar uma tarefa como concluída,
+// reagendar (inclusive quando o vencimento coincide com um feriado: o sistema
+// só alerta, quem decide mover a data é o usuário) ou editar os dados da
+// tarefa (título, natureza Interna/Externa, empresa e responsável).
+// `concluido_em` é setado quando `status` vira "Concluída" e limpo quando
+// volta para "Pendente". Uma tarefa "Interna" (reunião da própria equipe) não
+// tem empresa: `empresaId: null` grava `empresa_id = NULL`. RLS garante que só
+// é possível atualizar tarefas do próprio escritório; id inexistente ou
+// bloqueado por RLS responde 404 (mesmo padrão de `PATCH /api/empresas/:id`).
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const { supabase, applySetCookies } = await createSupabaseRouteHandlerClient();
@@ -35,6 +41,33 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   }
 
   const updates: Record<string, unknown> = {};
+
+  if ("titulo" in payload) {
+    const titulo = payload.titulo?.trim() ?? "";
+    if (!titulo) {
+      return applySetCookies(Response.json({ error: "O título é obrigatório." }, { status: 400 }));
+    }
+    updates.titulo = titulo;
+  }
+
+  if ("tipo" in payload) {
+    const tipo = payload.tipo?.trim() ?? "";
+    if (!tipo) {
+      return applySetCookies(Response.json({ error: "O tipo é obrigatório." }, { status: 400 }));
+    }
+    updates.tipo = tipo;
+  }
+
+  if ("empresaId" in payload) {
+    const empresaId = payload.empresaId?.trim?.() ?? payload.empresaId;
+    // "" ou null → tarefa interna (sem empresa).
+    updates.empresa_id = empresaId ? empresaId : null;
+  }
+
+  if ("responsavelId" in payload) {
+    const responsavelId = payload.responsavelId?.trim?.() ?? payload.responsavelId;
+    updates.responsavel_id = responsavelId ? responsavelId : null;
+  }
 
   if ("status" in payload) {
     const status = payload.status;
@@ -81,4 +114,36 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   }
 
   return applySetCookies(Response.json(resposta));
+}
+
+// DELETE /api/tarefas/:id — exclui uma tarefa avulsa ou gerada por modelo.
+// RLS garante que só é possível excluir tarefas do próprio escritório; id
+// inexistente ou bloqueado por RLS responde 404 (mesmo padrão do PATCH).
+export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  const { supabase, applySetCookies } = await createSupabaseRouteHandlerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return applySetCookies(Response.json({ error: "Não autenticado." }, { status: 401 }));
+  }
+
+  const { data: tarefaExcluida, error: deleteError } = await supabase
+    .from("tarefas")
+    .delete()
+    .eq("id", id)
+    .select("id")
+    .maybeSingle();
+
+  if (deleteError) {
+    return applySetCookies(Response.json({ error: "Não foi possível excluir a tarefa." }, { status: 500 }));
+  }
+
+  if (!tarefaExcluida) {
+    return applySetCookies(Response.json({ error: "Tarefa não encontrada." }, { status: 404 }));
+  }
+
+  return applySetCookies(Response.json({ ok: true }));
 }
