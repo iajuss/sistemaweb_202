@@ -20,6 +20,20 @@ export async function POST(request: Request) {
   const { error } = await supabase.auth.signInWithPassword({ email, password: senha });
 
   if (error) {
+    // Sem esta distinção, quem ainda não clicou no link de confirmação recebe
+    // "senha inválida" e fica tentando redefinir uma senha que está certa.
+    if (error.code === "email_not_confirmed") {
+      return applySetCookies(
+        Response.json(
+          {
+            error: "Confirme seu e-mail antes de entrar. Veja o link que enviamos para sua caixa de entrada.",
+            emailNaoConfirmado: true,
+          },
+          { status: 401 },
+        ),
+      );
+    }
+
     return applySetCookies(Response.json({ error: "E-mail ou senha inválidos." }, { status: 401 }));
   }
 

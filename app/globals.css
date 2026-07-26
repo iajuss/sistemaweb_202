@@ -130,3 +130,11 @@ html[data-theme="dark"] .task-popover-actions button:hover{background:#1c333c}
 html[data-theme="dark"] .task-popover-holiday{background:#3a2f1c;color:#e6c07b}
 html[data-theme="dark"] .inline-error{color:#ffb9b2}
 .chart-grid-loading{padding:48px 16px;text-align:center;color:var(--muted);font-size:13px;font-weight:600}
+.google-signin{display:flex;align-items:center;justify-content:center;gap:10px;height:47px;margin-top:6px;padding:0 16px;border:1px solid #d8e5e7;border-radius:10px;color:#264c59;font-weight:600;text-decoration:none;transition:.2s background,.2s border}
+.google-signin:hover{background:#f2f7f8;border-color:#bcd2d6}
+.google-signin-mark{display:grid;place-items:center;width:18px;height:18px;flex:none}
+.notice-action{margin-top:10px;padding:0;border:0;background:none;color:inherit;font-size:12px;font-weight:700;text-decoration:underline}
+.notice-feedback{margin:8px 0 0;font-size:12px;opacity:.85}
+html[data-theme="dark"] .google-signin{border-color:#41616b;color:#d3e3e6}
+html[data-theme="dark"] .google-signin:hover{background:#1c333c}
+.signup-link{margin-top:16px}

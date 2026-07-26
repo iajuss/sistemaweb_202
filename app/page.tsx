@@ -12,7 +12,15 @@ export default async function Page() {
     redirect("/login");
   }
 
-  const { data: perfil } = await supabase.from("perfis").select("nome").eq("id", user.id).single();
+  const { data: perfil } = await supabase
+    .from("perfis")
+    .select("nome, cadastro_completo")
+    .eq("id", user.id)
+    .single();
+
+  if (perfil && !perfil.cadastro_completo) {
+    redirect("/completar-cadastro");
+  }
 
   const nomeDoUsuario = perfil?.nome ?? user.user_metadata?.nome ?? "Usuário";
 
