@@ -189,11 +189,20 @@ export function calcularVencimentosDoModelo(params: {
  *    abas abertas, um duplo clique) porque ambas podem passar pelo `select`
  *    antes de qualquer uma inserir. O `upsert` com `ignoreDuplicates` faz a
  *    segunda inserção da corrida virar um no-op silencioso em vez de criar
- *    uma linha duplicada, **desde que exista o índice único parcial**
+ *    uma linha duplicada, **desde que exista o índice único**
  *    `tarefas_modelo_vencimento_unique` (`supabase/migrations/manual/
- *    0006_tarefas_unique_modelo_vencimento.sql`, parcial em
- *    `where modelo_id is not null` porque tarefas avulsas não têm essa
- *    restrição).
+ *    0007_tarefas_unique_index_sem_predicado.sql` — sem `where`, porque
+ *    tarefas avulsas com `modelo_id: null` já não são restringidas por um
+ *    índice único comum, já que o Postgres trata NULLs como distintos).
+ *
+ *    Essa migração substitui a tentativa anterior (`0006_tarefas_unique_
+ *    modelo_vencimento.sql`), que criava esse mesmo índice como **parcial**
+ *    (`where modelo_id is not null`). Um índice parcial nunca pode ser
+ *    inferido por um `ON CONFLICT (coluna, coluna)` que só lista colunas —
+ *    o Postgres exige que o predicado seja repetido no próprio `ON CONFLICT`,
+ *    algo que a API do supabase-js não permite expressar. Por isso 0006
+ *    sozinha nunca teria feito o `upsert` funcionar (sempre cairia no
+ *    fallback abaixo, permanentemente, não só até ser aplicada).
  *
  *    **Importante, verificado ao vivo**: diferente do que se poderia supor,
  *    um `upsert` com `onConflict` apontando para uma constraint que ainda
@@ -201,14 +210,13 @@ export function calcularVencimentosDoModelo(params: {
  *    Postgres recusa com o erro `42P10` ("no unique or exclusion constraint
  *    matching the ON CONFLICT specification"), porque `ON CONFLICT` precisa
  *    que o índice já exista para ter contra o que casar. Isso foi
- *    reproduzido ao vivo nesta task (a migração 0006 ainda não tinha sido
- *    aplicada no banco de teste) e quebraria a geração de tarefas por
- *    completo até a migração ser aplicada manualmente. Por isso, o catch
- *    abaixo detecta especificamente `42P10` e cai para um `insert` comum
- *    (mesmo comportamento de antes desta correção — protegido só pelo
- *    `select` de fast path, sem proteção real contra corrida) só até a
- *    migração 0006 ser aplicada; depois disso, o `upsert` com `onConflict`
- *    passa a funcionar e a proteção fica completa.
+ *    reproduzido ao vivo nesta task (antes de a migração 0007 ser aplicada)
+ *    e quebraria a geração de tarefas por completo até a migração ser
+ *    aplicada manualmente. Por isso, o catch abaixo detecta especificamente
+ *    `42P10` e cai para um `insert` comum (mesmo comportamento de antes
+ *    desta correção — protegido só pelo `select` de fast path, sem proteção
+ *    real contra corrida) até a migração 0007 ser aplicada; depois disso, o
+ *    `upsert` com `onConflict` passa a funcionar e a proteção fica completa.
  *
  * Erros são isolados por modelo/vencimento: uma falha ao gerar a tarefa de
  * um modelo (ou checar duplicidade) é logada e não impede a geração dos
@@ -267,8 +275,8 @@ export async function gerarTarefasDoMes(supabase: SupabaseClient, escritorioId: 
         .upsert(novaTarefa, { onConflict: "modelo_id,vencimento", ignoreDuplicates: true });
 
       if (upsertError?.code === "42P10") {
-        // Migração 0006 (índice único parcial) ainda não foi aplicada no
-        // banco — ON CONFLICT não tem constraint pra casar. Cai para um
+        // Migração 0007 (índice único sem predicado) ainda não foi aplicada
+        // no banco — ON CONFLICT não tem constraint pra casar. Cai para um
         // insert comum (mesma proteção de antes desta correção, só o select
         // de fast path acima) até a migração ser aplicada manualmente.
         const { error: insertError } = await supabase.from("tarefas").insert(novaTarefa);
