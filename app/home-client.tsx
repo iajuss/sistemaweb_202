@@ -357,6 +357,10 @@ function Onboarding({ companies, setCompanies, perfis, userName, setIssues }: {
       setSaving(false);
       return;
     }
+    // Empresa já persistida: fecha o cartão de consulta e limpa o campo de
+    // CNPJ imediatamente, para não sugerir "salvar de novo" e liberar o
+    // campo para o próximo cadastro.
+    setResult(null); setCnpj(""); setState("idle"); setResponsavelId(""); setObservacoes("");
     try {
       const atualizadas = await listarEmpresas();
       setCompanies(atualizadas);

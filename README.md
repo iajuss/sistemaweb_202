@@ -70,10 +70,26 @@ Para aplicar o schema em um projeto Supabase novo, execute, nesta ordem, via SQL
    ordem de nome de arquivo, sempre depois das migrações do passo 1. Veja
    `supabase/migrations/manual/README.md` para detalhes.
 
-Também é necessário, no painel do Supabase, em **Authentication → Sign In / Providers → Email**,
-deixar **"Confirm email" DESMARCADO** — o fluxo de cadastro desta aplicação faz login
-imediatamente após o `signUp()`, e com a confirmação de e-mail habilitada o usuário fica
-criado porém não confirmado, e o login subsequente falha.
+### Autenticação
+
+O app aceita **e-mail + senha** (com confirmação obrigatória por e-mail) e **login com Google**.
+No painel do Supabase é preciso configurar:
+
+- **Authentication → Sign In / Providers → Email**: "Confirm email" **MARCADO**.
+- **Authentication → Emails → template "Confirm signup"**: o link deve apontar para
+  `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email`. O formato padrão
+  (`?code=`) só funciona no mesmo navegador que iniciou o cadastro, por causa do PKCE.
+- **Authentication → Sign In / Providers → Google**: habilitado, com Client ID e Client
+  Secret criados no Google Cloud Console (tipo "Aplicativo da Web"). Lá, o URI de
+  redirecionamento autorizado é `https://<seu-projeto>.supabase.co/auth/v1/callback`.
+- **Authentication → URL Configuration**: *Site URL* e *Redirect URLs* com o endereço onde
+  o app roda (ex.: `http://localhost:3000` e `http://localhost:3000/**`).
+
+Contas criadas pelo Google não informam o nome do escritório, então nascem com
+`perfis.cadastro_completo = false` e são levadas a `/completar-cadastro` no primeiro acesso.
+
+O SMTP embutido do Supabase tem limite baixo de envios; para produção, configure um SMTP
+próprio em **Authentication → Emails → SMTP Settings**.
 
 ## Observações
 

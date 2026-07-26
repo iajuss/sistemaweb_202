@@ -24,6 +24,9 @@ export const perfis = pgTable("perfis", {
     .notNull()
     .references(() => escritorios.id, { onDelete: "cascade" }),
   nome: text("nome").notNull(),
+  // Falso só para contas criadas por provedor externo (Google), que não informam
+  // o nome do escritório. Ver manual/0012_google_oauth_cadastro.sql.
+  cadastroCompleto: boolean("cadastro_completo").notNull().default(true),
   criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().default(sql`now()`),
 });
 

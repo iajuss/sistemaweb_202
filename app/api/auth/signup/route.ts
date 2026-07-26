@@ -38,7 +38,10 @@ export async function POST(request: Request) {
   const { error } = await supabase.auth.signUp({
     email,
     password: senha,
-    options: { data: { escritorio_nome: escritorioNome, nome } },
+    options: {
+      data: { escritorio_nome: escritorioNome, nome },
+      emailRedirectTo: new URL("/auth/confirm", request.url).toString(),
+    },
   });
 
   if (error) {

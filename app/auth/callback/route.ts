@@ -5,16 +5,22 @@ export async function GET(request: Request) {
   const code = url.searchParams.get("code");
   const next = url.searchParams.get("next") === "/redefinir-senha" ? "/redefinir-senha" : "/";
 
+  // Response.redirect() devolve headers imutáveis neste runtime (Workers) — não dá
+  // para anexar o Set-Cookie da sessão depois. Por isso montamos a Response à mão,
+  // igual ao padrão já usado em /api/auth/google.
+  const redirecionar = (destino: string) =>
+    new Response(null, { status: 302, headers: { Location: new URL(destino, url.origin).toString() } });
+
   if (!code) {
-    return Response.redirect(new URL("/login", url.origin), 302);
+    return redirecionar("/login");
   }
 
   const { supabase, applySetCookies } = await createSupabaseRouteHandlerClient();
   const { error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error) {
-    return applySetCookies(Response.redirect(new URL("/login?recuperacao=erro", url.origin), 302));
+    return applySetCookies(redirecionar("/login?recuperacao=erro"));
   }
 
-  return applySetCookies(Response.redirect(new URL(next, url.origin), 302));
+  return applySetCookies(redirecionar(next));
 }
