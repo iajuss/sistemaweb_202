@@ -20,7 +20,7 @@ export type TarefaEditPatch = Partial<{
   tipo: string;
   /** `null` ou `""` → tarefa interna (sem empresa). */
   empresaId: string | null;
-  responsavelId: string | null;
+  responsavelIds: string[];
   status: "Pendente" | "Concluída" | "Cancelada";
   vencimento: string;
 }>;

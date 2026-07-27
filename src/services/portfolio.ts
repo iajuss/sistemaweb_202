@@ -56,8 +56,8 @@ export type Tarefa = {
   titulo: string;
   tipo: string;
   empresa: string;
-  responsavelId?: string | null;
-  responsavel: string;
+  responsavelIds: string[];
+  responsaveis: string[];
   vencimento: string;
   status: "Pendente" | "Concluída" | "Atrasada" | "Cancelada";
   concluidoEm?: string | null;
@@ -81,8 +81,8 @@ export type ModeloRecorrencia = {
   diasSemana: number[] | null;
   // Só relevante para periodicidade "anual": mês do vencimento (1-12).
   mesReferencia: number | null;
-  responsavelId?: string | null;
-  responsavel: string;
+  responsavelIds: string[];
+  responsaveis: string[];
   ativo: boolean;
   // Fim da recorrência por duração (ex.: repetir por 2 meses), a partir de
   // `criadoEm`. Os dois `null` juntos = repete sem data final.
@@ -355,7 +355,7 @@ export type TarefaPayload = {
   titulo: string;
   tipo: string;
   empresaId: string;
-  responsavelId?: string | null;
+  responsavelIds?: string[];
   vencimento: string;
 };
 
@@ -408,7 +408,7 @@ export type ModeloRecorrenciaPayload = {
   diasSemana?: number[];
   mesReferencia?: number;
   empresaId?: string | null;
-  responsavelId?: string | null;
+  responsavelIds?: string[];
   repeticoesQuantidade?: number | null;
   repeticoesUnidade?: UnidadeRepeticao | null;
 };
@@ -436,7 +436,7 @@ export type ModeloRecorrenciaPatch = Partial<{
   diasSemana: number[];
   mesReferencia: number;
   empresaId: string | null;
-  responsavelId: string | null;
+  responsavelIds: string[];
   repeticoesQuantidade: number | null;
   repeticoesUnidade: UnidadeRepeticao | null;
   ativo: boolean;
