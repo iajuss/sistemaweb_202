@@ -42,23 +42,24 @@ html[data-theme="dark"] .responsavel-chip{background:#2a3536;color:#d7e7dc}
 html[data-theme="dark"] .responsavel-dropdown{background:#20272b;border-color:#3b4648}
 html[data-theme="dark"] .responsavel-dropdown button{color:#dbe5e6}
 html[data-theme="dark"] .responsavel-dropdown button:hover{background:#2a3536}
-.repeticao-range{position:relative;display:inline-block}
-.range-popover{position:absolute;top:100%;left:0;margin-top:8px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;z-index:50;width:min(560px,90vw)}
-.range-header{display:grid;grid-template-columns:auto 1fr 1fr auto;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;font-weight:700;color:var(--text)}
-.range-header strong{text-align:center}
-.range-calendars{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.range-weekdays{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:4px}
-.range-day-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
-.range-day{border:0;background:transparent;border-radius:6px;padding:6px 0;font-size:12px;color:var(--text);cursor:pointer}
+.repeticao-range{position:relative;display:inline-block;max-width:100%}
+.range-popover{position:absolute;top:100%;left:0;margin-top:8px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:12px;z-index:50;width:min(360px,85vw);max-width:calc(100vw - 40px)}
+.range-calendars{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.range-calendar-header{display:flex;gap:4px;margin-bottom:6px}
+.range-calendar-header select{border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--text);font-size:10px;font-weight:700;padding:3px 1px;min-width:0;flex:1 1 0}
+.range-weekdays{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:3px}
+.range-day-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px}
+.range-day{border:0;background:transparent;border-radius:5px;padding:4px 0;font-size:10px;color:var(--text);cursor:pointer}
 .range-day:hover{background:#eaf3f4}
 .range-day-blank{cursor:default}
 .range-day-in{background:#eaf3f4;border-radius:0}
-.range-day-start{background:var(--primary);color:#fff;border-radius:6px 0 0 6px}
-.range-day-end{background:var(--primary);color:#fff;border-radius:0 6px 6px 0}
-.range-popover-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:14px}
+.range-day-start{background:var(--primary);color:#fff;border-radius:5px 0 0 5px}
+.range-day-end{background:var(--primary);color:#fff;border-radius:0 5px 5px 0}
+.range-popover-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:10px}
 html[data-theme="dark"] .range-popover{background:var(--surface)}
 html[data-theme="dark"] .range-day:hover{background:#2a3536}
 html[data-theme="dark"] .range-day-in{background:#2a3536}
+html[data-theme="dark"] .range-calendar-header select{border-color:#3b4648}
 html[data-font-size="small"] body{font-size:13px}html[data-font-size="large"] body{font-size:16px}html[data-font-size="large"] .page-content{font-size:1.08em}html[data-vision="colorblind"]{--primary:#0072b2;--primary-dark:#005b8e;--secondary:#e69f00}html[data-vision="colorblind"] .badge.success{background:#e5f0f7;color:#0072b2}html[data-vision="colorblind"] .badge.danger{background:#fff1db;color:#a56600}html[data-vision="colorblind"] .badge.warning{background:#f6e5ef;color:#a1477c}html[data-vision="colorblind"] .calendar-task.late{background:#fff1db;color:#a56600;border-color:#e69f00}
 html[data-theme="dark"] .account-avatar,html[data-theme="dark"] .settings-panel-head>span{background:#2a3536;color:#b9d1bf}html[data-theme="dark"] .choice-group button{background:#181f22;border-color:#4a5758;color:#c6d0ca}html[data-theme="dark"] .choice-group button.selected{background:#2a3536;border-color:#759b8a;color:#d7e7dc;box-shadow:0 0 0 2px #354a42}html[data-theme="dark"] .settings-form label{color:#d0dad4}html[data-theme="dark"] .settings-message.success{background:#244036;color:#bde1c9}html[data-theme="dark"] .settings-message.error{background:#452d2d;color:#ffc2ba}
 @media(max-width:760px){.settings-grid{grid-template-columns:1fr}.settings-form{grid-template-columns:1fr}.settings-panel{padding:19px}.settings-form .primary{width:100%}}

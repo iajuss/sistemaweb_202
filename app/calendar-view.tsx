@@ -16,6 +16,7 @@ const formatDataCurta = (iso: string) => new Intl.DateTimeFormat("pt-BR", { day:
 const semPontoFinal = (mensagem: string) => mensagem.replace(/\.+$/, "");
 
 const MESES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+const MESES_ABREV = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
 // Nomes dos dias da semana na convenção do backend (1=segunda … 7=domingo),
@@ -106,8 +107,11 @@ function RepeticaoRangePicker({ inicio, fim, onChange }: {
   const menuAcessivel = useAccessibleMenu(aberto, () => setAberto(false));
   useDismissOnViewportChange(aberto, menuAcessivel.fechar);
   const hoje = new Date();
-  const [mesBaseAno, setMesBaseAno] = useState(hoje.getFullYear());
-  const [mesBaseMes, setMesBaseMes] = useState(hoje.getMonth());
+  const [esquerdaAno, setEsquerdaAno] = useState(hoje.getFullYear());
+  const [esquerdaMes, setEsquerdaMes] = useState(hoje.getMonth());
+  const indiceDireitaInicial = hoje.getFullYear() * 12 + hoje.getMonth() + 1;
+  const [direitaAno, setDireitaAno] = useState(Math.floor(indiceDireitaInicial / 12));
+  const [direitaMes, setDireitaMes] = useState(indiceDireitaInicial % 12);
   const [selecaoInicio, setSelecaoInicio] = useState<string | null>(inicio);
   const [selecaoFim, setSelecaoFim] = useState<string | null>(fim);
   const [hoverDia, setHoverDia] = useState<string | null>(null);
@@ -143,7 +147,14 @@ function RepeticaoRangePicker({ inicio, fim, onChange }: {
     return dia >= a && dia <= b;
   };
 
-  const renderCalendario = (ano: number, mes: number) => <div className="range-calendar" key={`${ano}-${mes}`}>
+  // 11 anos ao redor do ano do próprio calendário, mesmo padrão do seletor de período do calendário principal.
+  const anosDisponiveis = (anoBase: number) => Array.from({ length: 11 }, (_, i) => anoBase - 5 + i);
+
+  const renderCalendario = (ano: number, mes: number, setAno: (a: number) => void, setMes: (m: number) => void, label: string) => <div className="range-calendar" key={label}>
+    <div className="range-calendar-header">
+      <select aria-label={`${label} — mês`} value={mes} onChange={(e) => setMes(Number(e.target.value))}>{MESES_ABREV.map((m, i) => <option key={m} value={i}>{m}</option>)}</select>
+      <select aria-label={`${label} — ano`} value={ano} onChange={(e) => setAno(Number(e.target.value))}>{anosDisponiveis(ano).map((a) => <option key={a} value={a}>{a}</option>)}</select>
+    </div>
     <div className="range-weekdays">{["D", "S", "T", "Q", "Q", "S", "S"].map((d, i) => <span key={i}>{d}</span>)}</div>
     <div className="range-day-grid">{mesGrid(ano, mes).map((dia, i) => {
       if (!dia) return <span key={`blank-${i}`} className="range-day range-day-blank" />;
@@ -155,16 +166,6 @@ function RepeticaoRangePicker({ inicio, fim, onChange }: {
     })}</div>
   </div>;
 
-  const indiceMesSeguinte = mesBaseAno * 12 + mesBaseMes + 1;
-  const mesSeguinteAno = Math.floor(indiceMesSeguinte / 12);
-  const mesSeguinteMes = indiceMesSeguinte % 12;
-
-  const navegar = (delta: number) => {
-    const novoIndice = mesBaseAno * 12 + mesBaseMes + delta;
-    setMesBaseAno(Math.floor(novoIndice / 12));
-    setMesBaseMes(((novoIndice % 12) + 12) % 12);
-  };
-
   return <div className="repeticao-range">
     <button type="button" className="secondary repeticao-range-trigger" onClick={abrir}>
       {inicio && fim ? `${formatDataCurta(inicio)} – ${formatDataCurta(fim)}` : "Selecionar período"}
@@ -172,15 +173,9 @@ function RepeticaoRangePicker({ inicio, fim, onChange }: {
     {aberto && <>
       <button type="button" className="menu-backdrop" aria-label="Fechar" onClick={() => setAberto(false)} />
       <div ref={menuAcessivel.menuRef} className="range-popover" role="dialog" aria-label="Selecionar período" onKeyDown={menuAcessivel.aoTeclar} onMouseLeave={() => setHoverDia(null)}>
-        <div className="range-header">
-          <button type="button" className="nav-arrow" aria-label="Mês anterior" onClick={() => navegar(-1)}>‹</button>
-          <strong>{MESES_PT[mesBaseMes]} {mesBaseAno}</strong>
-          <strong>{MESES_PT[mesSeguinteMes]} {mesSeguinteAno}</strong>
-          <button type="button" className="nav-arrow" aria-label="Próximo mês" onClick={() => navegar(1)}>›</button>
-        </div>
         <div className="range-calendars">
-          {renderCalendario(mesBaseAno, mesBaseMes)}
-          {renderCalendario(mesSeguinteAno, mesSeguinteMes)}
+          {renderCalendario(esquerdaAno, esquerdaMes, setEsquerdaAno, setEsquerdaMes, "Calendário de início")}
+          {renderCalendario(direitaAno, direitaMes, setDireitaAno, setDireitaMes, "Calendário de fim")}
         </div>
         <div className="range-popover-footer">
           <button type="button" className="secondary" onClick={apagar}>Apagar</button>
