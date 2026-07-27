@@ -14,6 +14,8 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const themeBootstrap = `(()=>{try{const root=document.documentElement;const auth=['/login','/signup'].includes(location.pathname);const theme=localStorage.getItem('controle-carteira-theme');const vision=localStorage.getItem('controle-carteira-vision');const font=localStorage.getItem('controle-carteira-font-size');root.dataset.theme=auth?'light':theme==='dark'?'dark':'light';root.dataset.vision=vision==='colorblind'?'colorblind':'default';root.dataset.fontSize=['small','normal','large'].includes(font||'')?font:'normal'}catch(_){}})();`;
+
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost:3000";
@@ -35,7 +37,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt-BR">
+    <html lang="pt-BR" suppressHydrationWarning>
+      <head><script dangerouslySetInnerHTML={{ __html: themeBootstrap }} /></head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
