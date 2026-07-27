@@ -6,7 +6,7 @@ import {
   substituirResponsaveisModelo,
   validarDiasSemana,
   validarMesReferencia,
-  validarRepeticoes,
+  validarPeriodoRepeticao,
   type Periodicidade,
 } from "@/lib/modelos-recorrencia";
 
@@ -21,8 +21,8 @@ type ModeloRecorrenciaPatchPayload = {
   mesReferencia?: number;
   empresaId?: string | null;
   responsavelIds?: string[];
-  repeticoesQuantidade?: number | null;
-  repeticoesUnidade?: string | null;
+  repeteInicio?: string | null;
+  repeteFim?: string | null;
   ativo?: boolean;
 };
 
@@ -37,8 +37,8 @@ const CAMPOS_EDITAVEIS: { chave: keyof ModeloRecorrenciaPatchPayload; coluna: st
   { chave: "diasSemana", coluna: "dias_semana" },
   { chave: "mesReferencia", coluna: "mes_referencia" },
   { chave: "empresaId", coluna: "empresa_id" },
-  { chave: "repeticoesQuantidade", coluna: "repeticoes_quantidade" },
-  { chave: "repeticoesUnidade", coluna: "repeticoes_unidade" },
+  { chave: "repeteInicio", coluna: "repete_inicio" },
+  { chave: "repeteFim", coluna: "repete_fim" },
   { chave: "ativo", coluna: "ativo" },
 ];
 
@@ -47,7 +47,7 @@ const CAMPOS_EDITAVEIS: { chave: keyof ModeloRecorrenciaPatchPayload; coluna: st
 // quando enviado; valor atual do banco, caso contrário) precisa ser
 // revalidada como um todo, não campo a campo isoladamente.
 const CAMPOS_QUE_AFETAM_GERACAO = [
-  "periodicidade", "diaReferencia", "diasSemana", "mesReferencia", "repeticoesQuantidade", "repeticoesUnidade",
+  "periodicidade", "diaReferencia", "diasSemana", "mesReferencia",
 ] as const;
 
 // PATCH /api/modelos-recorrencia/:id — atualização parcial, usada
@@ -84,7 +84,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (CAMPOS_QUE_AFETAM_GERACAO.some((campo) => campo in payload)) {
     const { data: modeloAtual, error: buscarError } = await supabase
       .from("modelos_recorrencia")
-      .select("periodicidade, dia_referencia, dias_semana, mes_referencia, repeticoes_quantidade, repeticoes_unidade")
+      .select("periodicidade, dia_referencia, dias_semana, mes_referencia")
       .eq("id", id)
       .maybeSingle();
 
@@ -99,8 +99,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     }
 
     const atual = modeloAtual as {
-      periodicidade: string; dia_referencia: number; dias_semana: number[] | null;
-      mes_referencia: number | null; repeticoes_quantidade: number | null; repeticoes_unidade: string | null;
+      periodicidade: string; dia_referencia: number; dias_semana: number[] | null; mes_referencia: number | null;
     };
 
     const periodicidadeEfetiva = (payload.periodicidade ?? atual.periodicidade) as Periodicidade;
@@ -131,12 +130,31 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         return applySetCookies(Response.json({ error: erroMes }, { status: 400 }));
       }
     }
+  }
 
-    const quantidadeEfetiva = "repeticoesQuantidade" in payload ? payload.repeticoesQuantidade ?? null : atual.repeticoes_quantidade;
-    const unidadeEfetiva = "repeticoesUnidade" in payload ? payload.repeticoesUnidade ?? null : atual.repeticoes_unidade;
-    const erroRepeticoes = validarRepeticoes(periodicidadeEfetiva, quantidadeEfetiva, unidadeEfetiva);
-    if (erroRepeticoes) {
-      return applySetCookies(Response.json({ error: erroRepeticoes }, { status: 400 }));
+  if ("repeteInicio" in payload || "repeteFim" in payload) {
+    let repeteInicioEfetivo = payload.repeteInicio ?? null;
+    let repeteFimEfetivo = payload.repeteFim ?? null;
+
+    if (!("repeteInicio" in payload) || !("repeteFim" in payload)) {
+      const { data: modeloAtual, error: buscarError } = await supabase
+        .from("modelos_recorrencia")
+        .select("repete_inicio, repete_fim")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (buscarError || !modeloAtual) {
+        return applySetCookies(Response.json({ error: "Modelo de recorrência não encontrado." }, { status: 404 }));
+      }
+
+      const atualPeriodo = modeloAtual as { repete_inicio: string | null; repete_fim: string | null };
+      if (!("repeteInicio" in payload)) repeteInicioEfetivo = atualPeriodo.repete_inicio;
+      if (!("repeteFim" in payload)) repeteFimEfetivo = atualPeriodo.repete_fim;
+    }
+
+    const erroPeriodo = validarPeriodoRepeticao(repeteInicioEfetivo, repeteFimEfetivo);
+    if (erroPeriodo) {
+      return applySetCookies(Response.json({ error: erroPeriodo }, { status: 400 }));
     }
   }
 

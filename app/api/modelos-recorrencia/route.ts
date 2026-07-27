@@ -7,7 +7,7 @@ import {
   substituirResponsaveisModelo,
   validarDiasSemana,
   validarMesReferencia,
-  validarRepeticoes,
+  validarPeriodoRepeticao,
   type ModeloRecorrenciaRow,
   type Periodicidade,
 } from "@/lib/modelos-recorrencia";
@@ -50,8 +50,8 @@ type ModeloRecorrenciaPayload = {
   mesReferencia?: number;
   empresaId?: string | null;
   responsavelIds?: string[];
-  repeticoesQuantidade?: number | null;
-  repeticoesUnidade?: string | null;
+  repeteInicio?: string | null;
+  repeteFim?: string | null;
 };
 
 // POST /api/modelos-recorrencia — cria um modelo de recorrência no
@@ -63,10 +63,10 @@ type ModeloRecorrenciaPayload = {
 // da semana, 1=segunda...7=domingo) em vez de um único dia. "anual" usa
 // `mesReferencia` (1-12) além de `diaReferencia`.
 //
-// `repeticoesQuantidade`/`repeticoesUnidade` definem um fim para a
-// recorrência (ex.: "repetir por 2 meses"); ambos `null` = repete sem fim.
-// A unidade precisa ter grandeza igual ou maior que a periodicidade (ver
-// `validarRepeticoes`).
+// `repeteInicio`/`repeteFim` definem um intervalo real para a recorrência
+// (ex.: só entre duas datas); ambos `null` = repete sem fim. Os dois vêm
+// sempre juntos (ver `validarPeriodoRepeticao`). `repeteInicio` pode ser uma
+// data futura, adiando o começo da geração de tarefas.
 //
 // `empresaId` é opcional: um modelo interno (reunião/rotina da própria
 // equipe) não tem empresa associada — mesmo racional de `tarefas.empresa_id`
@@ -136,11 +136,11 @@ export async function POST(request: Request) {
     mesReferencia = payload.mesReferencia as number;
   }
 
-  const repeticoesQuantidade = payload.repeticoesQuantidade ?? null;
-  const repeticoesUnidade = payload.repeticoesUnidade ?? null;
-  const erroRepeticoes = validarRepeticoes(periodicidade as Periodicidade, repeticoesQuantidade, repeticoesUnidade);
-  if (erroRepeticoes) {
-    return applySetCookies(Response.json({ error: erroRepeticoes }, { status: 400 }));
+  const repeteInicio = payload.repeteInicio ?? null;
+  const repeteFim = payload.repeteFim ?? null;
+  const erroPeriodo = validarPeriodoRepeticao(repeteInicio, repeteFim);
+  if (erroPeriodo) {
+    return applySetCookies(Response.json({ error: erroPeriodo }, { status: 400 }));
   }
 
   const { data: perfil, error: perfilError } = await supabase
@@ -166,8 +166,8 @@ export async function POST(request: Request) {
       dia_referencia: diaReferencia,
       dias_semana: diasSemana,
       mes_referencia: mesReferencia,
-      repeticoes_quantidade: repeticoesQuantidade,
-      repeticoes_unidade: repeticoesUnidade,
+      repete_inicio: repeteInicio,
+      repete_fim: repeteFim,
       ativo: true,
     })
     .select("id")
