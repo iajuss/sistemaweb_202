@@ -42,16 +42,15 @@ export type ModeloRecorrenciaRow = {
   dia_referencia: number;
   dias_semana: number[] | null;
   mes_referencia: number | null;
-  responsavel_id: string | null;
   ativo: boolean;
   repeticoes_quantidade: number | null;
   repeticoes_unidade: string | null;
   criado_em: string;
   empresa: { fantasia: string } | null;
-  responsavel: { nome: string } | null;
+  responsaveis: { perfil: { id: string; nome: string } }[];
 };
 
-export const MODELO_RECORRENCIA_SELECT = "*, responsavel:perfis(nome), empresa:empresas(fantasia)";
+export const MODELO_RECORRENCIA_SELECT = "*, empresa:empresas(fantasia), responsaveis:modelos_recorrencia_responsaveis(perfil:perfis(id,nome))";
 
 /**
  * Faixa válida de `diaReferencia` conforme a periodicidade: mensal/anual
@@ -114,6 +113,7 @@ export function validarRepeticoes(
 }
 
 export function paraShapeFrontend(row: ModeloRecorrenciaRow) {
+  const responsaveis = row.responsaveis.map((r) => r.perfil);
   return {
     id: row.id,
     empresaId: row.empresa_id,
@@ -124,13 +124,32 @@ export function paraShapeFrontend(row: ModeloRecorrenciaRow) {
     diaReferencia: row.dia_referencia,
     diasSemana: row.dias_semana,
     mesReferencia: row.mes_referencia,
-    responsavelId: row.responsavel_id,
-    responsavel: row.responsavel?.nome ?? "",
+    responsavelIds: responsaveis.map((p) => p.id),
+    responsaveis: responsaveis.map((p) => p.nome),
     ativo: row.ativo,
     repeticoesQuantidade: row.repeticoes_quantidade,
     repeticoesUnidade: row.repeticoes_unidade,
     criadoEm: row.criado_em,
   };
+}
+
+/**
+ * Substitui a lista inteira de responsáveis de um modelo de recorrência:
+ * apaga todas as ligações existentes e insere as novas. Mesmo racional de
+ * `substituirResponsaveisTarefa` em `lib/tarefas.ts`.
+ */
+export async function substituirResponsaveisModelo(
+  supabase: SupabaseClient,
+  modeloId: string,
+  perfilIds: string[],
+) {
+  const { error: erroDelete } = await supabase.from("modelos_recorrencia_responsaveis").delete().eq("modelo_id", modeloId);
+  if (erroDelete) return erroDelete;
+  if (perfilIds.length === 0) return null;
+  const { error: erroInsert } = await supabase
+    .from("modelos_recorrencia_responsaveis")
+    .insert(perfilIds.map((perfilId) => ({ modelo_id: modeloId, perfil_id: perfilId })));
+  return erroInsert;
 }
 
 /**
