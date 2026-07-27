@@ -3,13 +3,13 @@
 import { ClipboardEvent, FormEvent, KeyboardEvent, lazy, ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { extrairCNPJDoTexto, validarCNPJ } from "../lib/cnpj";
 import {
-  atualizarEmpresa, atualizarMembroEquipe, consultarCNPJ, convidarFuncionario, excluirEmpresa,
-  executarAuditoria, formatarSocio, listarDivergencias, listarEmpresas, listarEquipe, listarPerfis,
+  atualizarEmpresa, atualizarEscritorio, atualizarMembroEquipe, consultarCNPJ, convidarFuncionario, excluirEmpresa,
+  executarAuditoria, formatarSocio, listarDivergencias, listarEmpresas, listarEquipe, listarEscritorio, listarPerfis,
   listarTarefas, paraSocioPayload, salvarEmpresa, tratarDivergencia,
   type Divergencia, type Empresa, type MembroEquipe, type Papel, type SocioPayload, type Tarefa,
 } from "../src/services/portfolio";
 import { AccessibleModal, useAccessibleMenu, useDismissOnViewportChange } from "./accessibility";
-import { Calendar } from "./calendar-view";
+import { Calendar, ResponsavelPicker } from "./calendar-view";
 
 // recharts é grande e só é usado na aba "Análise". Carregado sob demanda para
 // não entrar no caminho do primeiro render da rota "/" (que abre na "Visão
@@ -55,12 +55,12 @@ type CamposCadastraisDraft = {
   cnpj: string; razaoSocial: string; fantasia: string; cidade: string; estado: string; endereco: string;
   status: string; porte: string; cnaeCodigo: string; cnae: string; socios: SocioPayload[];
 };
-type EmpresaEditDraft = CamposCadastraisDraft & { responsavelId: string; observacoes: string };
+type EmpresaEditDraft = CamposCadastraisDraft & { responsavelIds: string[]; observacoes: string };
 const paraEditDraft = (empresa: Empresa): EmpresaEditDraft => ({
   cnpj: empresa.cnpj, razaoSocial: empresa.razaoSocial, fantasia: empresa.fantasia, cidade: empresa.cidade, estado: empresa.estado,
   endereco: empresa.endereco, status: empresa.status, porte: empresa.porte,
   cnaeCodigo: empresa.cnaeCodigo, cnae: empresa.cnae, socios: empresa.socios.map(paraSocioPayload),
-  responsavelId: empresa.responsavelId ?? "", observacoes: empresa.observacoes ?? "",
+  responsavelIds: empresa.responsavelIds, observacoes: empresa.observacoes ?? "",
 });
 
 /** Lista editável de sócios (nome + cargo), dentro de um dropdown
@@ -159,7 +159,7 @@ function EmpresaEditModal({ empresa, perfis, onClose, onSaved }: {
         cnpj: draft.cnpj.replace(/\D/g, ""), razaoSocial: draft.razaoSocial, fantasia: draft.fantasia, cidade: draft.cidade, estado: draft.estado,
         endereco: draft.endereco, situacaoCadastral: draft.status, porte: draft.porte,
         cnaeCodigo: draft.cnaeCodigo, cnaeDescricao: draft.cnae, socios: draft.socios,
-        responsavelId: draft.responsavelId || null, observacoes: draft.observacoes,
+        responsavelIds: draft.responsavelIds, observacoes: draft.observacoes,
       });
       onSaved(atualizada);
     } catch (err) {
@@ -170,7 +170,10 @@ function EmpresaEditModal({ empresa, perfis, onClose, onSaved }: {
   };
   return <AccessibleModal label={`Editar ${empresa.razaoSocial}`} onClose={onClose}><form className="modal" onSubmit={save}><button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button><h2>Editar empresa</h2><div className="field-grid">
     <CamposCadastraisFields draft={draft} setDraft={setDraft} />
-    <label className="full">Responsável interno<select value={draft.responsavelId} onChange={(e) => setDraft({ ...draft, responsavelId: e.target.value })}><option value="">Sem responsável</option>{perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label>
+    <div className="full field-block">
+      <span className="field-label">Responsáveis internos</span>
+      <ResponsavelPicker perfis={perfis} selecionados={draft.responsavelIds} onChange={(ids) => setDraft({ ...draft, responsavelIds: ids })} />
+    </div>
     <label className="full">Observações internas<textarea value={draft.observacoes} onChange={(e) => setDraft({ ...draft, observacoes: e.target.value })} /></label>
   </div>{!cnpjValido && <div className="notice error" role="alert"><p>CNPJ inválido — confira os números antes de salvar.</p></div>}{error && <div className="notice error" role="alert"><p>{error}</p></div>}<button className="primary" disabled={saving || !cnpjValido}>{saving ? "Salvando…" : "Salvar alterações"}</button></form></AccessibleModal>;
 }
@@ -284,7 +287,7 @@ export function HomeClient({ userName, userEmail, papel }: { userName: string; u
     view === "Onboarding" ? <Onboarding companies={companies} setCompanies={setCompanies} perfis={perfis} userName={userName} setIssues={setIssues} /> :
     view === "Auditoria" ? <Audit issues={issues} setIssues={setIssues} companies={companies} setCompanies={setCompanies} perfis={perfis} /> :
     view === "Análise" ? <Analysis companies={companies} /> :
-    view === "Calendário" ? <Calendar tasks={tasks} setTasks={atualizarTarefas} companies={companies} perfis={perfis} /> :
+    view === "Calendário" ? <Calendar tasks={tasks} setTasks={atualizarTarefas} companies={companies} perfis={perfis} userName={userName} papel={papel} /> :
     <Settings userName={userName} userEmail={userEmail} papel={papel} />
   );
 
@@ -371,6 +374,30 @@ function Settings({ userName, userEmail, papel }: { userName: string; userEmail:
     if (papel === "responsavel") listarEquipe().then(setEquipe).catch(() => setEquipe([]));
   }, [papel]);
 
+  const [escritorioNome, setEscritorioNome] = useState("");
+  const [editandoEscritorio, setEditandoEscritorio] = useState(false);
+  const [escritorioNomeDraft, setEscritorioNomeDraft] = useState("");
+  const [salvandoEscritorio, setSalvandoEscritorio] = useState(false);
+  const [escritorioMessage, setEscritorioMessage] = useState("");
+
+  useEffect(() => {
+    if (papel === "responsavel") listarEscritorio().then((e) => { setEscritorioNome(e.nome); setEscritorioNomeDraft(e.nome); }).catch(() => {});
+  }, [papel]);
+
+  const salvarEscritorioNome = async (event: FormEvent) => {
+    event.preventDefault();
+    setSalvandoEscritorio(true); setEscritorioMessage("");
+    try {
+      const atualizado = await atualizarEscritorio(escritorioNomeDraft);
+      setEscritorioNome(atualizado.nome);
+      setEditandoEscritorio(false);
+    } catch (error) {
+      setEscritorioMessage(error instanceof Error ? error.message : "Não foi possível atualizar o escritório.");
+    } finally {
+      setSalvandoEscritorio(false);
+    }
+  };
+
   const convidar = async (event: FormEvent) => {
     event.preventDefault();
     setConvidando(true); setConviteMessage("");
@@ -396,27 +423,47 @@ function Settings({ userName, userEmail, papel }: { userName: string; userEmail:
     }
   };
 
+  const numeroFuncionarios = equipe.filter((m) => m.papel === "funcionario").length;
+
+  const equipeTable = <table className="equipe-table">
+    <thead><tr><th>Nome</th><th>E-mail</th><th>Papel</th><th>Status</th><th></th></tr></thead>
+    <tbody>{equipe.map((m) => <tr key={m.id}>
+      <td>{m.nome || "Convite pendente"}</td>
+      <td>{m.email}</td>
+      <td>{m.papel === "responsavel" ? "Responsável" : "Funcionário"}</td>
+      <td>{m.ativo ? "Ativo" : "Inativo"}</td>
+      <td>{m.papel === "funcionario" && <button type="button" className="secondary" disabled={atualizandoId === m.id} onClick={() => alternarAtivo(m)}>{atualizandoId === m.id ? "Aguarde…" : m.ativo ? "Desativar" : "Reativar"}</button>}</td>
+    </tr>)}</tbody>
+  </table>;
+
   return <>
     <section className="section-head settings-heading"><div><p className="eyebrow">Conta e acessibilidade</p><h2>Configurações</h2><p>Gerencie suas informações, segurança e preferências de visualização.</p></div></section>
     <section className="settings-grid">
       <article className="panel account-card"><div className="account-avatar">{userName.slice(0, 2).toUpperCase()}</div><div><p className="settings-label">Conta conectada</p><h3>{userName}</h3><p>{userEmail}</p></div></article>
+      {papel === "responsavel" && <article className="panel escritorio-card">
+        <p className="settings-label">Escritório</p>
+        {editandoEscritorio ? <form className="escritorio-rename-form" onSubmit={salvarEscritorioNome}>
+          <input required value={escritorioNomeDraft} onChange={(e) => setEscritorioNomeDraft(e.target.value)} />
+          <button className="primary" disabled={salvandoEscritorio}>{salvandoEscritorio ? "Salvando…" : "Salvar"}</button>
+          <button type="button" className="secondary" onClick={() => { setEditandoEscritorio(false); setEscritorioNomeDraft(escritorioNome); setEscritorioMessage(""); }}>Cancelar</button>
+        </form> : <>
+          <h3>{escritorioNome}</h3>
+          <p>{numeroFuncionarios} {numeroFuncionarios === 1 ? "funcionário" : "funcionários"}</p>
+          <button type="button" className="secondary" onClick={() => setEditandoEscritorio(true)}>Editar nome</button>
+        </>}
+        {escritorioMessage && <p className="settings-message error" role="alert">{escritorioMessage}</p>}
+      </article>}
       {papel === "responsavel" && <article className="panel settings-panel equipe-panel">
         <div className="settings-panel-head"><span aria-hidden="true">◍</span><div><h3>Equipe</h3><p>Convide funcionários para trabalhar junto com você neste espaço.</p></div></div>
-        <form className="settings-form" onSubmit={convidar}>
+        <form className="settings-form convite-form" onSubmit={convidar}>
           <label>E-mail do funcionário<input type="email" required value={conviteEmail} onChange={(e) => setConviteEmail(e.target.value)} placeholder="funcionario@email.com" /></label>
-          {conviteMessage && <p className={conviteMessage.includes("sucesso") ? "settings-message success" : "settings-message error"} role={conviteMessage.includes("sucesso") ? "status" : "alert"}>{conviteMessage}</p>}
           <button className="primary" disabled={convidando}>{convidando ? "Enviando…" : "Convidar"}</button>
+          {conviteMessage && <p className={conviteMessage.includes("sucesso") ? "settings-message success" : "settings-message error"} role={conviteMessage.includes("sucesso") ? "status" : "alert"}>{conviteMessage}</p>}
         </form>
-        <table className="equipe-table">
-          <thead><tr><th>Nome</th><th>E-mail</th><th>Papel</th><th>Status</th><th></th></tr></thead>
-          <tbody>{equipe.map((m) => <tr key={m.id}>
-            <td>{m.nome || "Convite pendente"}</td>
-            <td>{m.email}</td>
-            <td>{m.papel === "responsavel" ? "Responsável" : "Funcionário"}</td>
-            <td>{m.ativo ? "Ativo" : "Inativo"}</td>
-            <td>{m.papel === "funcionario" && <button type="button" className="secondary" disabled={atualizandoId === m.id} onClick={() => alternarAtivo(m)}>{atualizandoId === m.id ? "Aguarde…" : m.ativo ? "Desativar" : "Reativar"}</button>}</td>
-          </tr>)}</tbody>
-        </table>
+        {equipe.length > 10 ? <details className="equipe-dropdown">
+          <summary>Ver equipe ({equipe.length})</summary>
+          {equipeTable}
+        </details> : equipeTable}
       </article>}
       <article className="panel settings-panel"><div className="settings-panel-head"><span aria-hidden="true">◉</span><div><h3>Redefinir senha</h3><p>Escolha uma nova senha com pelo menos 8 caracteres.</p></div></div><form className="settings-form" onSubmit={updatePassword}><label>Nova senha<input type="password" autoComplete="new-password" minLength={8} required value={senha} onChange={(event) => setSenha(event.target.value)} /></label><label>Confirmar nova senha<input type="password" autoComplete="new-password" minLength={8} required value={confirmacao} onChange={(event) => setConfirmacao(event.target.value)} /></label>{message && <p className={message.includes("sucesso") ? "settings-message success" : "settings-message error"} role={message.includes("sucesso") ? "status" : "alert"}>{message}</p>}<button className="primary" disabled={savingPassword}>{savingPassword ? "Atualizando…" : "Atualizar senha"}</button></form></article>
       <article className="panel settings-panel"><div className="settings-panel-head"><span aria-hidden="true">◌</span><div><h3>Modo daltonismo</h3><p>Usa a paleta Okabe–Ito e indicadores textuais para não depender apenas de vermelho e verde.</p></div></div><div className="choice-group" role="radiogroup" aria-label="Modo daltonismo"><button type="button" data-choice="default" tabIndex={vision === "default" ? 0 : -1} className={vision === "default" ? "selected" : ""} role="radio" aria-checked={vision === "default"} onKeyDown={(event) => navegarRadio(event, ["default", "colorblind"], vision, applyVision)} onClick={() => applyVision("default")}><i className="palette-default" aria-hidden="true" />Padrão</button><button type="button" data-choice="colorblind" tabIndex={vision === "colorblind" ? 0 : -1} className={vision === "colorblind" ? "selected" : ""} role="radio" aria-checked={vision === "colorblind"} onKeyDown={(event) => navegarRadio(event, ["default", "colorblind"], vision, applyVision)} onClick={() => applyVision("colorblind")}><i className="palette-colorblind" aria-hidden="true" />Daltonismo</button></div></article>
@@ -436,7 +483,7 @@ function Overview({ companies, issues, tasks, weekTasks, go }: { companies: Empr
     <section className="quick-grid">
       {[ ["Onboarding", "＋", "Inclua empresas com dados pré-preenchidos por CNPJ."], ["Auditoria", "◈", "Revise divergências identificadas na base."], ["Análise", "▥", "Entenda a composição da sua carteira."], ["Calendário", "□", "Acompanhe obrigações e prazos recorrentes."] ].map(([title, icon, text]) => <button className="quick-card" key={title} onClick={() => go(title as View)}><span aria-hidden="true">{icon}</span><strong>{title}</strong><p>{text}</p><em aria-hidden="true">→</em></button>)}
     </section>
-    <section className="two-columns"><article className="panel"><div className="panel-title"><div><h3>Próximos vencimentos</h3><p>Prioridades dos próximos dias</p></div><button onClick={() => go("Calendário")}>Ver calendário</button></div>{tasks.slice(0, 4).map((t) => <div className="task-line" key={t.id}><time>{formatDate(t.vencimento)}</time><div><strong>{t.titulo}</strong><small>{t.empresa || "Reunião interna"} · {t.responsavel}</small></div><Badge tone={t.status === "Atrasada" ? "danger" : "blue"}>{t.status}</Badge></div>)}</article><article className="panel"><div className="panel-title"><div><h3>Auditoria em foco</h3><p>Ocorrências pendentes por prioridade</p></div><button onClick={() => go("Auditoria")}>Revisar</button></div>{issues.filter((i) => i.status === "Pendente").slice(0, 4).map((i) => <div className="task-line" key={i.id}><span className="issue-dot" aria-hidden="true">!</span><div><strong>{i.empresa}</strong><small>{i.tipo}</small></div><Badge tone="warning">Pendente</Badge></div>)}</article></section>
+    <section className="two-columns"><article className="panel"><div className="panel-title"><div><h3>Próximos vencimentos</h3><p>Prioridades dos próximos dias</p></div><button onClick={() => go("Calendário")}>Ver calendário</button></div>{tasks.slice(0, 4).map((t) => <div className="task-line" key={t.id}><time>{formatDate(t.vencimento)}</time><div><strong>{t.titulo}</strong><small>{t.empresa || "Reunião interna"} · {t.responsaveis.join(", ")}</small></div><Badge tone={t.status === "Atrasada" ? "danger" : "blue"}>{t.status}</Badge></div>)}</article><article className="panel"><div className="panel-title"><div><h3>Auditoria em foco</h3><p>Ocorrências pendentes por prioridade</p></div><button onClick={() => go("Auditoria")}>Revisar</button></div>{issues.filter((i) => i.status === "Pendente").slice(0, 4).map((i) => <div className="task-line" key={i.id}><span className="issue-dot" aria-hidden="true">!</span><div><strong>{i.empresa}</strong><small>{i.tipo}</small></div><Badge tone="warning">Pendente</Badge></div>)}</article></section>
   </>;
 }
 
@@ -452,7 +499,7 @@ function Onboarding({ companies, setCompanies, perfis, userName, setIssues }: {
     return () => clearTimeout(id);
   }, [toastVisible]);
   const [saving, setSaving] = useState(false); const [saveError, setSaveError] = useState("");
-  const [responsavelId, setResponsavelId] = useState(""); const [observacoes, setObservacoes] = useState("");
+  const [responsavelIds, setResponsavelIds] = useState<string[]>([]); const [observacoes, setObservacoes] = useState("");
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number } | null>(null);
   const dismissMenu = () => { setMenuOpenId(null); setMenuAnchor(null); };
@@ -474,7 +521,7 @@ function Onboarding({ companies, setCompanies, perfis, userName, setIssues }: {
     e.preventDefault(); setState("loading");
     try {
       const data = await consultarCNPJ(cnpj); setResult(data); setState("success");
-      setResponsavelId(""); setObservacoes("");
+      setResponsavelIds([]); setObservacoes("");
     } catch (error) {
       const bruta = error instanceof Error ? error.message : "Não foi possível consultar";
       setMessage(`${semPontoFinal(bruta)}. Confira os números e tente novamente.`);
@@ -485,7 +532,7 @@ function Onboarding({ companies, setCompanies, perfis, userName, setIssues }: {
     if (!result) return;
     setSaving(true); setSaveError("");
     try {
-      await salvarEmpresa({ ...result, responsavelId: responsavelId || null, observacoes });
+      await salvarEmpresa({ ...result, responsavelIds, observacoes });
     } catch (error) {
       // Nada foi persistido — a mensagem "não foi possível salvar" é exata aqui.
       const bruta = error instanceof Error ? error.message : "Não foi possível salvar a empresa";
@@ -496,7 +543,7 @@ function Onboarding({ companies, setCompanies, perfis, userName, setIssues }: {
     // Empresa já persistida: fecha o cartão de consulta e limpa o campo de
     // CNPJ imediatamente, para não sugerir "salvar de novo" e liberar o
     // campo para o próximo cadastro.
-    setResult(null); setCnpj(""); setState("idle"); setResponsavelId(""); setObservacoes("");
+    setResult(null); setCnpj(""); setState("idle"); setResponsavelIds([]); setObservacoes("");
     try {
       const atualizadas = await listarEmpresas();
       setCompanies(atualizadas);
@@ -539,10 +586,10 @@ function Onboarding({ companies, setCompanies, perfis, userName, setIssues }: {
     <section className="section-head"><div><h2>Novo cadastro</h2><p>Consulte o CNPJ para começar com os dados preenchidos.</p></div></section>
     <section className="panel onboarding"><form onSubmit={lookup}><label htmlFor="cnpj">CNPJ da empresa</label><div className="search-row"><input id="cnpj" value={cnpj} onChange={(e) => setCnpj(maskCNPJ(e.target.value))} onPaste={(e: ClipboardEvent<HTMLInputElement>) => { e.preventDefault(); setCnpj(maskCNPJ(extrairCNPJDoTexto(e.clipboardData.getData("text")))); }} placeholder="00.000.000/0000-00" inputMode="numeric" /><button className="primary" disabled={state === "loading"}>{state === "loading" ? "Consultando…" : "Consultar"}</button></div><small>Consulta via BrasilAPI.</small></form>{state === "error" && <div className="notice error" role="alert"><strong>Não encontramos esse CNPJ</strong><p>{message}</p></div>}</section>
     {result && <section className="detail-card"><div className="detail-heading"><div><Badge tone={statusTone(result.status)}>{result.status}</Badge><h2>{result.razaoSocial}</h2><p>{result.fantasia} · CNPJ {result.cnpj}</p></div><div className="detail-actions"><button type="button" className="secondary" onClick={() => setEditingPreview(true)}>Editar dados</button><button className="primary" onClick={save} disabled={saving}>{saving ? "Salvando…" : "Salvar na carteira"}</button></div></div>
-    {editingPreview && result && <EmpresaPreviewEditModal empresa={result} onClose={() => setEditingPreview(false)} onSave={(dados) => { setResult({ ...result, ...dados, status: dados.status as Empresa["status"], porte: dados.porte as Empresa["porte"], socios: dados.socios.map(formatarSocio) }); setEditingPreview(false); }} />}{saveError && <div className="notice error" role="alert"><p>{saveError}</p></div>}<div className="details"><div><span>Endereço</span><strong>{result.endereco}, {result.cidade}/{result.estado}</strong></div><div><span>CNAE principal</span><strong>{result.cnaeCodigo || result.cnae ? `${result.cnaeCodigo} · ${result.cnae}` : "Não informado pela consulta"}</strong></div><div><span>Porte</span><strong>{result.porte}</strong></div><div><span>Responsável interno</span><select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)}>{perfis.length > 0 ? <><option value="">Sem responsável</option>{perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</> : <option value="">{userName}</option>}</select></div><div className="full"><details className="socios-dropdown"><summary>Quadro societário{result.socios.length > 0 ? ` (${result.socios.length})` : ""}</summary><div className="socios-list">{result.socios.length > 0 ? result.socios.map((s, i) => <p key={i} className="static-value">{s}</p>) : <p className="static-value">Nenhum sócio informado.</p>}</div></details></div><div className="full"><label htmlFor="obs">Observações internas</label><textarea id="obs" value={observacoes} onChange={(e) => setObservacoes(e.target.value)} placeholder="Inclua orientações para o time responsável…" /></div></div></section>}
+    {editingPreview && result && <EmpresaPreviewEditModal empresa={result} onClose={() => setEditingPreview(false)} onSave={(dados) => { setResult({ ...result, ...dados, status: dados.status as Empresa["status"], porte: dados.porte as Empresa["porte"], socios: dados.socios.map(formatarSocio) }); setEditingPreview(false); }} />}{saveError && <div className="notice error" role="alert"><p>{saveError}</p></div>}<div className="details"><div><span>Endereço</span><strong>{result.endereco}, {result.cidade}/{result.estado}</strong></div><div><span>CNAE principal</span><strong>{result.cnaeCodigo || result.cnae ? `${result.cnaeCodigo} · ${result.cnae}` : "Não informado pela consulta"}</strong></div><div><span>Porte</span><strong>{result.porte}</strong></div><div><span>Responsáveis internos</span><ResponsavelPicker perfis={perfis} selecionados={responsavelIds} onChange={setResponsavelIds} /></div><div className="full"><details className="socios-dropdown"><summary>Quadro societário{result.socios.length > 0 ? ` (${result.socios.length})` : ""}</summary><div className="socios-list">{result.socios.length > 0 ? result.socios.map((s, i) => <p key={i} className="static-value">{s}</p>) : <p className="static-value">Nenhum sócio informado.</p>}</div></details></div><div className="full"><label htmlFor="obs">Observações internas</label><textarea id="obs" value={observacoes} onChange={(e) => setObservacoes(e.target.value)} placeholder="Inclua orientações para o time responsável…" /></div></div></section>}
     {toastVisible && <div className="toast" role="status" aria-live="polite"><span>✓ {message}</span><button type="button" className="toast-close" aria-label="Fechar aviso" onClick={() => setToastVisible(false)}>×</button></div>}
     <section className="section-head table-head"><div><h2>Cadastros na carteira</h2><p>{companies.length} empresas registradas</p></div><input aria-label="Buscar empresa" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por empresa ou CNPJ" /></section>
-    <section className="panel table-wrap"><table><thead><tr><th scope="col">Empresa</th><th scope="col">CNPJ</th><th scope="col">Localidade</th><th scope="col">Situação</th><th scope="col">Responsável</th><th scope="col"><span className="sr-only">Ações</span></th></tr></thead><tbody>{listed.map((c) => <tr key={c.id}><td><strong>{c.razaoSocial}</strong><small>{c.fantasia}</small></td><td>{c.cnpj}</td><td>{c.cidade}/{c.estado}</td><td><Badge tone={statusTone(c.status)}>{c.status}</Badge></td><td>{c.responsavel}</td><td className="row-menu"><button className="icon-button" aria-label={`Mais opções — ${c.razaoSocial}`} onClick={(e) => toggleMenu(c.id, e.currentTarget)}>⋯</button>{menuOpenId === c.id && menuAnchor && <>
+    <section className="panel table-wrap"><table><thead><tr><th scope="col">Empresa</th><th scope="col">CNPJ</th><th scope="col">Localidade</th><th scope="col">Situação</th><th scope="col">Responsável</th><th scope="col"><span className="sr-only">Ações</span></th></tr></thead><tbody>{listed.map((c) => <tr key={c.id}><td><strong>{c.razaoSocial}</strong><small>{c.fantasia}</small></td><td>{c.cnpj}</td><td>{c.cidade}/{c.estado}</td><td><Badge tone={statusTone(c.status)}>{c.status}</Badge></td><td>{c.responsaveis.join(", ")}</td><td className="row-menu"><button className="icon-button" aria-label={`Mais opções — ${c.razaoSocial}`} onClick={(e) => toggleMenu(c.id, e.currentTarget)}>⋯</button>{menuOpenId === c.id && menuAnchor && <>
       <button type="button" className="menu-backdrop" aria-label="Fechar menu" onClick={closeMenu} />
       <div ref={menuAcessivel.menuRef} className="dropdown-menu" role="menu" onKeyDown={menuAcessivel.aoTeclar} style={{ top: menuAnchor.top, right: menuAnchor.right }}><button type="button" role="menuitem" onClick={() => openEdit(c)}>Editar</button><button type="button" role="menuitem" className="danger" onClick={() => { dismissMenu(); setDeleting(c); setDeleteError(""); }}>Excluir</button></div>
     </>}</td></tr>)}</tbody></table>{listed.length === 0 && <Empty />}</section>
@@ -596,7 +643,7 @@ function clustersDuplicidadePendente(issues: Divergencia[]): { representanteId: 
 // duas empresas do cluster têm o mesmo número de divergências (ver
 // `divergenciasPendentes` abaixo, que é o critério principal).
 function completudeCadastro(e: Empresa): number {
-  return [e.fantasia, e.endereco, e.cnae, e.cnaeCodigo, e.responsavel, e.abertura, e.socios.length > 0 ? "x" : ""].filter(Boolean).length;
+  return [e.fantasia, e.endereco, e.cnae, e.cnaeCodigo, e.responsaveis.length > 0 ? "x" : "", e.abertura, e.socios.length > 0 ? "x" : ""].filter(Boolean).length;
 }
 
 // Quantas divergências pendentes essa empresa tem contra o cache da última
@@ -688,7 +735,7 @@ function ResolverDuplicidade({ divergencia, issues, companies, onClose, onResolv
         <div><span>Situação</span><strong>{e.status}</strong></div>
         <div><span>Porte</span><strong>{e.porte}</strong></div>
         <div><span>Localidade</span><strong>{e.cidade}/{e.estado}</strong></div>
-        <div><span>Responsável</span><strong>{e.responsavel || "—"}</strong></div>
+        <div><span>Responsável</span><strong>{e.responsaveis.length > 0 ? e.responsaveis.join(", ") : "—"}</strong></div>
         <div className="full"><span>CNAE</span><strong>{e.cnaeCodigo ? `${e.cnaeCodigo} · ${e.cnae}` : e.cnae || "Não informado"}</strong></div>
         <div className="full"><span>Endereço</span><strong>{e.endereco || "Não informado"}</strong></div>
       </div>
@@ -898,7 +945,7 @@ function SegmentoModal({ titulo, empresas, onClose }: { titulo: string; empresas
         <div><span>Localidade</span><strong>{e.cidade}/{e.estado}</strong></div>
         <div><span>Porte</span><strong>{e.porte}</strong></div>
         <div><span>CNAE</span><strong>{e.cnaeCodigo ? `${e.cnaeCodigo} · ${e.cnae}` : e.cnae || "Não informado"}</strong></div>
-        <div><span>Responsável</span><strong>{e.responsavel || "—"}</strong></div>
+        <div><span>Responsável</span><strong>{e.responsaveis.length > 0 ? e.responsaveis.join(", ") : "—"}</strong></div>
         <div className="full"><span>Endereço</span><strong>{e.endereco || "Não informado"}</strong></div>
       </div>
     </article>)}</div>}

@@ -4,13 +4,14 @@ import { FormEvent, ReactNode, useEffect, useState } from "react";
 import {
   atualizarModeloRecorrencia, atualizarTarefa, criarModeloRecorrencia, criarTarefa, excluirModeloRecorrencia,
   listarModelosRecorrencia, listarTarefas,
-  type Empresa, type ModeloRecorrencia, type Periodicidade, type Tarefa, type UnidadeRepeticao,
+  type Empresa, type ModeloRecorrencia, type Papel, type Periodicidade, type Tarefa,
 } from "../src/services/portfolio";
 import { AccessibleModal, useAccessibleMenu, useDismissOnViewportChange } from "./accessibility";
 import { editarTarefa, excluirTarefa } from "../src/services/tarefas-extra";
 
 const formatDate = (date: string) => new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" }).format(new Date(`${date}T12:00:00`));
 const formatDataLonga = (date: string) => new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "long", year: "numeric" }).format(new Date(`${date}T12:00:00`));
+const formatDataCurta = (iso: string) => new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(`${iso}T12:00:00`));
 /** Evita "...obrigatórios.. Tente novamente." quando a mensagem do servidor já termina em ponto. */
 const semPontoFinal = (mensagem: string) => mensagem.replace(/\.+$/, "");
 
@@ -28,28 +29,18 @@ const DIAS_SEMANA_CURTO: [number, string][] = [
   [1, "Seg"], [2, "Ter"], [3, "Qua"], [4, "Qui"], [5, "Sex"], [6, "Sáb"], [7, "Dom"],
 ];
 
-// Rótulo (singular, plural) de cada unidade de repetição, para "1 mês" vs "2 meses".
-const UNIDADE_LABEL: Record<UnidadeRepeticao, [string, string]> = {
-  dias: ["dia", "dias"],
-  meses: ["mês", "meses"],
-  anos: ["ano", "anos"],
-};
-const rotuloUnidade = (quantidade: number, unidade: UnidadeRepeticao) => UNIDADE_LABEL[unidade][quantidade === 1 ? 0 : 1];
-const UNIDADE_TEXTO: Record<UnidadeRepeticao, string> = { dias: "Dias", meses: "Meses", anos: "Anos" };
+// Frequência por extenso, usada na dica "Gera tarefas indefinidamente, ..." — varia com a periodicidade do modelo.
+const FREQUENCIA_TEXTO: Record<Periodicidade, string> = { diario: "todo dia", semanal: "toda semana", mensal: "todo mês", anual: "todo ano" };
 
-// Ordem de grandeza das periodicidades e das unidades, menor pra maior —
-// a unidade de "repetir por" só pode ser de valor igual ou maior que a
-// própria periodicidade (não faz sentido um modelo "anual" repetir só "por
-// 3 dias"). Não existe unidade "semanas": para "semanal" a menor unidade
-// cabível é "meses". Espelha `lib/modelos-recorrencia.ts` no backend.
-const ORDEM_UNIDADE: Record<UnidadeRepeticao, number> = { dias: 1, meses: 2, anos: 3 };
-const UNIDADE_MINIMA: Record<Periodicidade, UnidadeRepeticao> = {
-  diario: "dias", semanal: "meses", mensal: "meses", anual: "anos",
-};
-const UNIDADES_REPETICAO: UnidadeRepeticao[] = ["dias", "meses", "anos"];
-function unidadesValidas(periodicidade: Periodicidade): UnidadeRepeticao[] {
-  const minimo = ORDEM_UNIDADE[UNIDADE_MINIMA[periodicidade]];
-  return UNIDADES_REPETICAO.filter((u) => ORDEM_UNIDADE[u] >= minimo);
+/** Grade de um mês pro seletor de intervalo: `null` nas células antes do dia 1 (mesmo padrão do calendário principal), datas "YYYY-MM-DD" depois. */
+function mesGrid(ano: number, mes: number): (string | null)[] {
+  const diasNoMes = new Date(ano, mes + 1, 0).getDate();
+  const primeiroDiaSemana = new Date(ano, mes, 1).getDay();
+  const dias: (string | null)[] = Array.from({ length: primeiroDiaSemana }, () => null);
+  for (let d = 1; d <= diasNoMes; d++) {
+    dias.push(`${ano}-${pad2(mes + 1)}-${pad2(d)}`);
+  }
+  return dias;
 }
 
 function Badge({ children, tone = "neutral" }: { children: ReactNode; tone?: string }) {
@@ -76,10 +67,128 @@ function descreverRecorrencia(m: ModeloRecorrencia): string {
     base = `Mensal · dia ${m.diaReferencia}`;
   }
 
-  if (m.repeticoesQuantidade && m.repeticoesUnidade) {
-    base += ` · por ${m.repeticoesQuantidade} ${rotuloUnidade(m.repeticoesQuantidade, m.repeticoesUnidade)}`;
+  if (m.repeteInicio && m.repeteFim) {
+    base += ` · ${formatDataCurta(m.repeteInicio)} – ${formatDataCurta(m.repeteFim)}`;
   }
   return base;
+}
+
+/** Chips removíveis + "+" pra adicionar mais um responsável dentre os perfis ainda não escolhidos. */
+export function ResponsavelPicker({ perfis, selecionados, onChange }: {
+  perfis: { id: string; nome: string }[]; selecionados: string[]; onChange: (ids: string[]) => void;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const menuAcessivel = useAccessibleMenu(aberto, () => setAberto(false));
+  useDismissOnViewportChange(aberto, menuAcessivel.fechar);
+  const disponiveis = perfis.filter((p) => !selecionados.includes(p.id));
+  const nomePorId = (id: string) => perfis.find((p) => p.id === id)?.nome ?? "…";
+
+  const adicionar = (id: string) => { onChange([...selecionados, id]); setAberto(false); };
+  const remover = (id: string) => onChange(selecionados.filter((s) => s !== id));
+
+  return <div className="responsavel-picker">
+    {selecionados.map((id) => <span key={id} className="responsavel-chip">{nomePorId(id)}<button type="button" aria-label={`Remover ${nomePorId(id)}`} onClick={() => remover(id)}>×</button></span>)}
+    {disponiveis.length > 0 && <button type="button" className="responsavel-add" aria-label="Adicionar responsável" onClick={(e) => { menuAcessivel.rememberOpener(e.currentTarget); setAberto(true); }}>+</button>}
+    {aberto && <>
+      <button type="button" className="menu-backdrop" aria-label="Fechar" onClick={() => setAberto(false)} />
+      <div ref={menuAcessivel.menuRef} className="responsavel-dropdown" role="menu" onKeyDown={menuAcessivel.aoTeclar}>
+        {disponiveis.map((p) => <button key={p.id} type="button" role="menuitem" onClick={() => adicionar(p.id)}>{p.nome}</button>)}
+      </div>
+    </>}
+  </div>;
+}
+
+/** Seletor de intervalo de datas (início/fim) pra "repetir por um período" — dois calendários mensais consecutivos, num popover. */
+function RepeticaoRangePicker({ inicio, fim, onChange }: {
+  inicio: string | null; fim: string | null; onChange: (inicio: string | null, fim: string | null) => void;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const menuAcessivel = useAccessibleMenu(aberto, () => setAberto(false));
+  useDismissOnViewportChange(aberto, menuAcessivel.fechar);
+  const hoje = new Date();
+  const [mesBaseAno, setMesBaseAno] = useState(hoje.getFullYear());
+  const [mesBaseMes, setMesBaseMes] = useState(hoje.getMonth());
+  const [selecaoInicio, setSelecaoInicio] = useState<string | null>(inicio);
+  const [selecaoFim, setSelecaoFim] = useState<string | null>(fim);
+  const [hoverDia, setHoverDia] = useState<string | null>(null);
+
+  const abrir = (e: { currentTarget: HTMLElement }) => {
+    menuAcessivel.rememberOpener(e.currentTarget);
+    setSelecaoInicio(inicio);
+    setSelecaoFim(fim);
+    setAberto(true);
+  };
+
+  const clicarDia = (dia: string) => {
+    if (!selecaoInicio || selecaoFim) {
+      setSelecaoInicio(dia);
+      setSelecaoFim(null);
+      return;
+    }
+    if (dia < selecaoInicio) {
+      setSelecaoFim(selecaoInicio);
+      setSelecaoInicio(dia);
+    } else {
+      setSelecaoFim(dia);
+    }
+  };
+
+  const apagar = () => { setSelecaoInicio(null); setSelecaoFim(null); };
+  const aplicar = () => { onChange(selecaoInicio, selecaoFim); setAberto(false); };
+
+  const emIntervalo = (dia: string) => {
+    const limiteSuperior = selecaoFim ?? hoverDia;
+    if (!selecaoInicio || !limiteSuperior) return false;
+    const [a, b] = selecaoInicio <= limiteSuperior ? [selecaoInicio, limiteSuperior] : [limiteSuperior, selecaoInicio];
+    return dia >= a && dia <= b;
+  };
+
+  const renderCalendario = (ano: number, mes: number) => <div className="range-calendar" key={`${ano}-${mes}`}>
+    <div className="range-weekdays">{["D", "S", "T", "Q", "Q", "S", "S"].map((d, i) => <span key={i}>{d}</span>)}</div>
+    <div className="range-day-grid">{mesGrid(ano, mes).map((dia, i) => {
+      if (!dia) return <span key={`blank-${i}`} className="range-day range-day-blank" />;
+      const classes = ["range-day"];
+      if (dia === selecaoInicio) classes.push("range-day-start");
+      if (dia === selecaoFim) classes.push("range-day-end");
+      if (emIntervalo(dia)) classes.push("range-day-in");
+      return <button type="button" key={dia} className={classes.join(" ")} onClick={() => clicarDia(dia)} onMouseEnter={() => setHoverDia(dia)}>{Number(dia.slice(-2))}</button>;
+    })}</div>
+  </div>;
+
+  const indiceMesSeguinte = mesBaseAno * 12 + mesBaseMes + 1;
+  const mesSeguinteAno = Math.floor(indiceMesSeguinte / 12);
+  const mesSeguinteMes = indiceMesSeguinte % 12;
+
+  const navegar = (delta: number) => {
+    const novoIndice = mesBaseAno * 12 + mesBaseMes + delta;
+    setMesBaseAno(Math.floor(novoIndice / 12));
+    setMesBaseMes(((novoIndice % 12) + 12) % 12);
+  };
+
+  return <div className="repeticao-range">
+    <button type="button" className="secondary repeticao-range-trigger" onClick={abrir}>
+      {inicio && fim ? `${formatDataCurta(inicio)} – ${formatDataCurta(fim)}` : "Selecionar período"}
+    </button>
+    {aberto && <>
+      <button type="button" className="menu-backdrop" aria-label="Fechar" onClick={() => setAberto(false)} />
+      <div ref={menuAcessivel.menuRef} className="range-popover" role="dialog" aria-label="Selecionar período" onKeyDown={menuAcessivel.aoTeclar} onMouseLeave={() => setHoverDia(null)}>
+        <div className="range-header">
+          <button type="button" className="nav-arrow" aria-label="Mês anterior" onClick={() => navegar(-1)}>‹</button>
+          <strong>{MESES_PT[mesBaseMes]} {mesBaseAno}</strong>
+          <strong>{MESES_PT[mesSeguinteMes]} {mesSeguinteAno}</strong>
+          <button type="button" className="nav-arrow" aria-label="Próximo mês" onClick={() => navegar(1)}>›</button>
+        </div>
+        <div className="range-calendars">
+          {renderCalendario(mesBaseAno, mesBaseMes)}
+          {renderCalendario(mesSeguinteAno, mesSeguinteMes)}
+        </div>
+        <div className="range-popover-footer">
+          <button type="button" className="secondary" onClick={apagar}>Apagar</button>
+          <button type="button" className="primary" onClick={aplicar}>Aplicar</button>
+        </div>
+      </div>
+    </>}
+  </div>;
 }
 
 const nomeEmpresaTarefa = (t: Tarefa) => (t.empresa && t.empresa.trim() !== "" ? t.empresa : "Reunião interna");
@@ -99,7 +208,7 @@ function TarefaEditModal({ tarefa, companies, perfis, onClose, onSaved }: {
   const [titulo, setTitulo] = useState(tarefa.titulo);
   const [natureza, setNatureza] = useState<"Interna" | "Externa">(naturezaTarefa(tarefa));
   const [empresaId, setEmpresaId] = useState(tarefa.empresaId ?? (companies[0]?.id ?? ""));
-  const [responsavelId, setResponsavelId] = useState(tarefa.responsavelId ?? "");
+  const [responsavelIds, setResponsavelIds] = useState<string[]>(tarefa.responsavelIds);
   const [vencimento, setVencimento] = useState(tarefa.vencimento);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -116,7 +225,7 @@ function TarefaEditModal({ tarefa, companies, perfis, onClose, onSaved }: {
         titulo,
         tipo: natureza,
         empresaId: natureza === "Externa" ? empresaId : null,
-        responsavelId: responsavelId || null,
+        responsavelIds,
         vencimento,
       });
       onSaved(atualizada);
@@ -140,7 +249,10 @@ function TarefaEditModal({ tarefa, companies, perfis, onClose, onSaved }: {
       <small className="field-hint">{natureza === "Interna" ? "Reunião ou atividade da própria equipe." : "Compromisso com uma empresa cliente."}</small>
     </div>
     {natureza === "Externa" && companies.length > 0 && <label>Empresa<select value={empresaId} onChange={(e) => setEmpresaId(e.target.value)}>{companies.map((c) => <option key={c.id} value={c.id}>{c.fantasia}</option>)}</select></label>}
-    <label>Responsável<select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)}><option value="">Sem responsável</option>{perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label>
+    <div className="field-block">
+      <span className="field-label">Responsáveis</span>
+      <ResponsavelPicker perfis={perfis} selecionados={responsavelIds} onChange={setResponsavelIds} />
+    </div>
     <label>Vencimento<input type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} /></label>
     {semEmpresa && <p className="inline-error">Nenhuma empresa cadastrada — cadastre uma no Onboarding para vincular tarefas externas.</p>}
     {error && <div className="notice error" role="alert"><p>{error}</p></div>}
@@ -162,10 +274,11 @@ function ModeloEditModal({ modelo, companies, perfis, onClose, onSaved }: {
   const [diaReferencia, setDiaReferencia] = useState(modelo.diaReferencia);
   const [diasSemana, setDiasSemana] = useState<number[]>(modelo.diasSemana ?? []);
   const [mesReferencia, setMesReferencia] = useState(modelo.mesReferencia ?? new Date().getMonth() + 1);
-  const [repeticoesQuantidade, setRepeticoesQuantidade] = useState<number | null>(modelo.repeticoesQuantidade);
-  const [repeticoesUnidade, setRepeticoesUnidade] = useState<UnidadeRepeticao | null>(modelo.repeticoesUnidade);
+  const [modoRepeticao, setModoRepeticao] = useState<"indefinido" | "periodo">(modelo.repeteInicio ? "periodo" : "indefinido");
+  const [repeteInicio, setRepeteInicio] = useState<string | null>(modelo.repeteInicio);
+  const [repeteFim, setRepeteFim] = useState<string | null>(modelo.repeteFim);
   const [empresaId, setEmpresaId] = useState(modelo.empresaId ?? (companies[0]?.id ?? ""));
-  const [responsavelId, setResponsavelId] = useState(modelo.responsavelId ?? "");
+  const [responsavelIds, setResponsavelIds] = useState<string[]>(modelo.responsavelIds);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const semEmpresa = natureza === "Externa" && companies.length === 0;
@@ -174,30 +287,27 @@ function ModeloEditModal({ modelo, companies, perfis, onClose, onSaved }: {
     setPeriodicidade(p);
     setDiaReferencia(1);
     setDiasSemana([]);
-    if (repeticoesQuantidade !== null) setRepeticoesUnidade(unidadesValidas(p)[0]);
   };
 
   const alternarDiaSemana = (dia: number) => {
     setDiasSemana((atual) => (atual.includes(dia) ? atual.filter((d) => d !== dia) : [...atual, dia].sort((a, b) => a - b)));
   };
 
-  const iniciarRepeticaoLimitada = () => {
-    setRepeticoesQuantidade(1);
-    setRepeticoesUnidade(unidadesValidas(periodicidade)[0]);
-  };
-
   const save = async (e: FormEvent) => {
     e.preventDefault();
     if (natureza === "Externa" && !empresaId) { setError("Selecione a empresa cliente do modelo externo."); return; }
     if (periodicidade === "semanal" && diasSemana.length === 0) { setError("Selecione pelo menos um dia da semana."); return; }
+    if (modoRepeticao === "periodo" && (!repeteInicio || !repeteFim)) { setError("Selecione o período de repetição."); return; }
     setSaving(true); setError("");
     try {
       const atualizado = await atualizarModeloRecorrencia(modelo.id, {
-        titulo, tipo, periodicidade, diaReferencia, repeticoesQuantidade, repeticoesUnidade,
+        titulo, tipo, periodicidade, diaReferencia,
+        repeteInicio: modoRepeticao === "periodo" ? repeteInicio : null,
+        repeteFim: modoRepeticao === "periodo" ? repeteFim : null,
         diasSemana: periodicidade === "semanal" ? diasSemana : undefined,
         mesReferencia: periodicidade === "anual" ? mesReferencia : undefined,
         empresaId: natureza === "Externa" ? empresaId : null,
-        responsavelId: responsavelId || null,
+        responsavelIds,
       });
       onSaved(atualizado);
     } catch (err) {
@@ -235,24 +345,27 @@ function ModeloEditModal({ modelo, companies, perfis, onClose, onSaved }: {
     <div className="field-block">
       <span className="field-label">Repetição</span>
       <div className="segmented" role="group" aria-label="Repetição">
-        <button type="button" className={repeticoesQuantidade === null ? "selected" : ""} onClick={() => { setRepeticoesQuantidade(null); setRepeticoesUnidade(null); }}>Sem data final</button>
-        <button type="button" className={repeticoesQuantidade !== null ? "selected" : ""} onClick={iniciarRepeticaoLimitada}>Repetir por um período</button>
+        <button type="button" className={modoRepeticao === "indefinido" ? "selected" : ""} onClick={() => { setModoRepeticao("indefinido"); setRepeteInicio(null); setRepeteFim(null); }}>Sem data final</button>
+        <button type="button" className={modoRepeticao === "periodo" ? "selected" : ""} onClick={() => setModoRepeticao("periodo")}>Repetir por um período</button>
       </div>
-      <small className="field-hint">{repeticoesQuantidade === null ? "Gera tarefas indefinidamente." : "Para de gerar novas tarefas após o período informado."}</small>
-      {repeticoesQuantidade !== null && <div className="field-grid">
-        <label>Quantidade<input type="number" min={1} required value={repeticoesQuantidade} onChange={(e) => setRepeticoesQuantidade(Number(e.target.value))} /></label>
-        <label>Unidade<select value={repeticoesUnidade ?? unidadesValidas(periodicidade)[0]} onChange={(e) => setRepeticoesUnidade(e.target.value as UnidadeRepeticao)}>{unidadesValidas(periodicidade).map((u) => <option key={u} value={u}>{UNIDADE_TEXTO[u]}</option>)}</select></label>
-      </div>}
+      <small className="field-hint">{modoRepeticao === "indefinido" ? `Gera tarefas indefinidamente, ${FREQUENCIA_TEXTO[periodicidade]}.` : "Para de gerar novas tarefas após o período informado."}</small>
+      {modoRepeticao === "periodo" && <RepeticaoRangePicker inicio={repeteInicio} fim={repeteFim} onChange={(i, f) => { setRepeteInicio(i); setRepeteFim(f); }} />}
     </div>
     {natureza === "Externa" && companies.length > 0 && <label>Empresa<select value={empresaId} onChange={(e) => setEmpresaId(e.target.value)}>{companies.map((c) => <option key={c.id} value={c.id}>{c.fantasia}</option>)}</select></label>}
-    <label>Responsável<select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)}><option value="">Sem responsável</option>{perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label>
+    <div className="field-block">
+      <span className="field-label">Responsáveis</span>
+      <ResponsavelPicker perfis={perfis} selecionados={responsavelIds} onChange={setResponsavelIds} />
+    </div>
     {semEmpresa && <p className="inline-error">Nenhuma empresa cadastrada — cadastre uma no Onboarding para vincular modelos externos.</p>}
     {error && <div className="notice error" role="alert"><p>{error}</p></div>}
     <button className="primary" disabled={saving || semEmpresa}>{saving ? "Salvando…" : "Salvar alterações"}</button>
   </form></AccessibleModal>;
 }
 
-export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa[]; setTasks: (tasks: Tarefa[]) => void; companies: Empresa[]; perfis: { id: string; nome: string }[] }) {
+export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }: {
+  tasks: Tarefa[]; setTasks: (tasks: Tarefa[]) => void; companies: Empresa[]; perfis: { id: string; nome: string }[];
+  userName: string; papel: Papel;
+}) {
   const hoje = new Date();
   const anoHoje = hoje.getFullYear();
   const mesHojeIndex = hoje.getMonth(); // 0-11
@@ -270,12 +383,12 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
   const monthDays = Array.from({ length: diasNoMes }, (_, i) => i + 1);
 
   const [mode, setMode] = useState<"month" | "list">("month");
-  const [responsible, setResponsible] = useState("Todos");
+  const [responsible, setResponsible] = useState(papel === "funcionario" ? userName : "Todos");
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [taskError, setTaskError] = useState("");
   const [concluindoId, setConcluindoId] = useState<string | null>(null);
-  const [draft, setDraft] = useState({ titulo: "", natureza: "Interna" as "Interna" | "Externa", empresaId: companies[0]?.id ?? "", responsavelId: perfis[0]?.id ?? "", vencimento: dataHojeISO });
+  const [draft, setDraft] = useState({ titulo: "", natureza: "Interna" as "Interna" | "Externa", empresaId: companies[0]?.id ?? "", responsavelIds: [] as string[], vencimento: dataHojeISO });
 
   // Tarefas do mês em visualização. No mês atual, espelha as `tasks` do
   // componente pai (usadas também pela Visão geral); em outros meses, são
@@ -306,8 +419,8 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
   const [modeloDraft, setModeloDraft] = useState({
     titulo: "", tipo: "Fiscal", periodicidade: "mensal" as Periodicidade, diaReferencia: 10,
     diasSemana: [] as number[], mesReferencia: new Date().getMonth() + 1,
-    repeticoesQuantidade: null as number | null, repeticoesUnidade: null as UnidadeRepeticao | null,
-    natureza: "Externa" as "Interna" | "Externa", empresaId: companies[0]?.id ?? "", responsavelId: perfis[0]?.id ?? "",
+    modoRepeticao: "indefinido" as "indefinido" | "periodo", repeteInicio: null as string | null, repeteFim: null as string | null,
+    natureza: "Externa" as "Interna" | "Externa", empresaId: companies[0]?.id ?? "", responsavelIds: [] as string[],
   });
   const [editingModelo, setEditingModelo] = useState<ModeloRecorrencia | null>(null);
   const [deletingModelo, setDeletingModelo] = useState<ModeloRecorrencia | null>(null);
@@ -339,7 +452,8 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
   }, [mesISO, isMesAtual]);
 
   const people = ["Todos", ...Array.from(new Set(perfis.map((p) => p.nome)))];
-  const shown = monthTasks.filter((t) => responsible === "Todos" || t.responsavel === responsible);
+  const shown = monthTasks.filter((t) => responsible === "Todos" || t.responsaveis.includes(responsible));
+  const modelosShown = modelos.filter((m) => responsible === "Todos" || m.responsaveis.includes(responsible));
 
   const recarregarMes = async (falhaParcial: string) => {
     try {
@@ -357,7 +471,7 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
       titulo: "",
       natureza: "Interna",
       empresaId: companies[0]?.id ?? "",
-      responsavelId: perfis[0]?.id ?? "",
+      responsavelIds: [],
       vencimento: isMesAtual ? dataHojeISO : `${mesISO}-01`,
     });
     setOpen(true);
@@ -379,7 +493,7 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
         titulo: draft.titulo,
         tipo: draft.natureza,
         empresaId: draft.natureza === "Externa" ? draft.empresaId : "",
-        responsavelId: draft.responsavelId || null,
+        responsavelIds: draft.responsavelIds,
         vencimento: draft.vencimento,
       });
     } catch (error) {
@@ -480,7 +594,6 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
       periodicidade: p,
       diaReferencia: 1,
       diasSemana: [],
-      repeticoesUnidade: d.repeticoesQuantidade !== null ? unidadesValidas(p)[0] : d.repeticoesUnidade,
     }));
   };
 
@@ -489,10 +602,6 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
       ...d,
       diasSemana: d.diasSemana.includes(dia) ? d.diasSemana.filter((n) => n !== dia) : [...d.diasSemana, dia].sort((a, b) => a - b),
     }));
-  };
-
-  const iniciarRepeticaoLimitadaDraft = () => {
-    setModeloDraft((d) => ({ ...d, repeticoesQuantidade: 1, repeticoesUnidade: unidadesValidas(d.periodicidade)[0] }));
   };
 
   const criarModelo = async (e: FormEvent) => {
@@ -505,6 +614,10 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
       setModeloError("Selecione pelo menos um dia da semana.");
       return;
     }
+    if (modeloDraft.modoRepeticao === "periodo" && (!modeloDraft.repeteInicio || !modeloDraft.repeteFim)) {
+      setModeloError("Selecione o período de repetição.");
+      return;
+    }
     setModeloSaving(true); setModeloError("");
     try {
       await criarModeloRecorrencia({
@@ -514,10 +627,10 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
         diaReferencia: modeloDraft.diaReferencia,
         diasSemana: modeloDraft.periodicidade === "semanal" ? modeloDraft.diasSemana : undefined,
         mesReferencia: modeloDraft.periodicidade === "anual" ? modeloDraft.mesReferencia : undefined,
-        repeticoesQuantidade: modeloDraft.repeticoesQuantidade,
-        repeticoesUnidade: modeloDraft.repeticoesUnidade,
+        repeteInicio: modeloDraft.modoRepeticao === "periodo" ? modeloDraft.repeteInicio : null,
+        repeteFim: modeloDraft.modoRepeticao === "periodo" ? modeloDraft.repeteFim : null,
         empresaId: modeloDraft.natureza === "Externa" ? modeloDraft.empresaId : null,
-        responsavelId: modeloDraft.responsavelId || null,
+        responsavelIds: modeloDraft.responsavelIds,
       });
     } catch (error) {
       const bruta = error instanceof Error ? error.message : "Não foi possível criar o modelo de recorrência";
@@ -602,8 +715,8 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
     setModeloDraft({
       titulo: "", tipo: "Fiscal", periodicidade: "mensal", diaReferencia: 10,
       diasSemana: [], mesReferencia: new Date().getMonth() + 1,
-      repeticoesQuantidade: null, repeticoesUnidade: null,
-      natureza: "Externa", empresaId: companies[0]?.id ?? "", responsavelId: perfis[0]?.id ?? "",
+      modoRepeticao: "indefinido", repeteInicio: null, repeteFim: null,
+      natureza: "Externa", empresaId: companies[0]?.id ?? "", responsavelIds: [],
     });
     setModeloOpen(true);
   };
@@ -627,7 +740,7 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
 
     <section className="calendar-toolbar"><div className="tabs"><button className={mode === "month" ? "selected" : ""} onClick={() => setMode("month")}>Calendário</button><button className={mode === "list" ? "selected" : ""} onClick={() => setMode("list")}>Lista</button></div><label>Responsável <select value={responsible} onChange={(e) => setResponsible(e.target.value)}>{people.map((p) => <option key={p}>{p}</option>)}</select></label></section>
 
-    {monthLoading ? <section className="panel" role="status" aria-live="polite"><div className="empty"><span aria-hidden="true">◷</span><strong>Carregando {mesLabel.toLowerCase()}…</strong><p>Buscando as tarefas deste mês.</p></div></section> : mode === "month" ? <section className="calendar"><div className="weekdays">{["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((d) => <span key={d}>{d}</span>)}</div><div className="day-grid">{Array.from({ length: primeiroDiaSemana }, (_, i) => <div className="day muted" key={`blank-${i}`} />)}{monthDays.map((day) => { const date = `${mesISO}-${pad2(day)}`; const items = shown.filter((t) => t.vencimento === date); const holiday = items.find((t) => t.coincideComFeriado)?.coincideComFeriado ?? null; const ehHoje = isMesAtual && date === dataHojeISO; return <div className={`day ${holiday ? "holiday" : ""} ${ehHoje ? "is-today" : ""}`} key={day}><span>{day}</span>{holiday && <small title={holiday.nome}>Feriado</small>}{items.map((t) => <button className={`calendar-task ${t.status === "Atrasada" ? "late" : ""} ${t.status === "Concluída" ? "done" : ""}`} key={t.id} title="Ver detalhes" onClick={() => setDetalhe(t)}>{t.titulo}</button>)}</div>; })}</div></section> : <section className="panel list-tasks">{shown.map((t) => <div className="task-line" key={t.id}><time>{formatDate(t.vencimento)}</time><div><strong>{t.titulo}</strong><small>{nomeEmpresaTarefa(t)} · {t.responsavel || "Sem responsável"}</small></div>{t.coincideComFeriado && <Badge tone="warning">Feriado: {t.coincideComFeriado.nome}</Badge>}<Badge tone={t.status === "Atrasada" ? "danger" : t.status === "Concluída" ? "success" : "blue"}>{t.status}</Badge><div className="row-menu"><button className="icon-button" aria-label={`Mais opções — ${t.titulo}`} onClick={(e) => toggleTaskMenu(t.id, e.currentTarget)}>⋯</button>{menuTaskId === t.id && menuAnchor && <>
+    {monthLoading ? <section className="panel" role="status" aria-live="polite"><div className="empty"><span aria-hidden="true">◷</span><strong>Carregando {mesLabel.toLowerCase()}…</strong><p>Buscando as tarefas deste mês.</p></div></section> : mode === "month" ? <section className="calendar"><div className="weekdays">{["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((d) => <span key={d}>{d}</span>)}</div><div className="day-grid">{Array.from({ length: primeiroDiaSemana }, (_, i) => <div className="day muted" key={`blank-${i}`} />)}{monthDays.map((day) => { const date = `${mesISO}-${pad2(day)}`; const items = shown.filter((t) => t.vencimento === date); const holiday = items.find((t) => t.coincideComFeriado)?.coincideComFeriado ?? null; const ehHoje = isMesAtual && date === dataHojeISO; return <div className={`day ${holiday ? "holiday" : ""} ${ehHoje ? "is-today" : ""}`} key={day}><span>{day}</span>{holiday && <small title={holiday.nome}>Feriado</small>}{items.map((t) => <button className={`calendar-task ${t.status === "Atrasada" ? "late" : ""} ${t.status === "Concluída" ? "done" : ""}`} key={t.id} title="Ver detalhes" onClick={() => setDetalhe(t)}>{t.titulo}</button>)}</div>; })}</div></section> : <section className="panel list-tasks">{shown.map((t) => <div className="task-line" key={t.id}><time>{formatDate(t.vencimento)}</time><div><strong>{t.titulo}</strong><small>{nomeEmpresaTarefa(t)} · {t.responsaveis.length > 0 ? t.responsaveis.join(", ") : "Sem responsável"}</small></div>{t.coincideComFeriado && <Badge tone="warning">Feriado: {t.coincideComFeriado.nome}</Badge>}<Badge tone={t.status === "Atrasada" ? "danger" : t.status === "Concluída" ? "success" : "blue"}>{t.status}</Badge><div className="row-menu"><button className="icon-button" aria-label={`Mais opções — ${t.titulo}`} onClick={(e) => toggleTaskMenu(t.id, e.currentTarget)}>⋯</button>{menuTaskId === t.id && menuAnchor && <>
       <button type="button" className="menu-backdrop" aria-label="Fechar menu" onClick={closeTaskMenu} />
       <div ref={menuAcessivel.menuRef} className="dropdown-menu" role="menu" onKeyDown={menuAcessivel.aoTeclar} style={{ top: menuAnchor.top, right: menuAnchor.right }}>{t.status !== "Concluída" && <button type="button" role="menuitem" disabled={concluindoId === t.id} onClick={() => { dismissTaskMenu(); concluir(t.id); }}>{concluindoId === t.id ? "Concluindo…" : "Concluir"}</button>}<button type="button" role="menuitem" onClick={() => { dismissTaskMenu(); setEditingTask(t); }}>Editar</button><button type="button" role="menuitem" className="danger" onClick={() => { dismissTaskMenu(); setDeletingTask(t); setDeleteError(""); }}>Excluir</button></div>
     </>}</div></div>)}{shown.length === 0 && <Empty title="Nenhuma tarefa neste mês" text="Cadastre uma tarefa avulsa ou um modelo de recorrência." />}</section>}
@@ -638,7 +751,7 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
         <dl className="task-popover-body">
           <div><dt>Natureza</dt><dd>{naturezaTarefa(detalhe)}</dd></div>
           <div><dt>{naturezaTarefa(detalhe) === "Interna" ? "Equipe" : "Empresa"}</dt><dd>{nomeEmpresaTarefa(detalhe)}</dd></div>
-          <div><dt>Responsável</dt><dd>{detalhe.responsavel || "Sem responsável"}</dd></div>
+          <div><dt>Responsáveis</dt><dd>{detalhe.responsaveis.length > 0 ? detalhe.responsaveis.join(", ") : "Sem responsável"}</dd></div>
           <div><dt>Vencimento</dt><dd>{formatDataLonga(detalhe.vencimento)}</dd></div>
           <div><dt>Situação</dt><dd><Badge tone={detalhe.status === "Atrasada" ? "danger" : detalhe.status === "Concluída" ? "success" : "blue"}>{detalhe.status}</Badge></dd></div>
         </dl>
@@ -657,12 +770,12 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
       <table>
         <thead><tr><th scope="col">Título</th><th scope="col">Tipo</th><th scope="col">Periodicidade</th><th scope="col">Empresa</th><th scope="col">Responsável</th><th scope="col">Situação</th><th scope="col"><span className="sr-only">Ações</span></th></tr></thead>
         <tbody>
-          {modelos.map((m) => <tr key={m.id}>
+          {modelosShown.map((m) => <tr key={m.id}>
             <td><strong>{m.titulo}</strong></td>
             <td>{m.tipo}</td>
             <td>{descreverRecorrencia(m)}</td>
             <td>{m.empresa || "Reunião interna"}</td>
-            <td>{m.responsavel || "—"}</td>
+            <td>{m.responsaveis.length > 0 ? m.responsaveis.join(", ") : "—"}</td>
             <td><Badge tone={m.ativo ? "success" : "neutral"}>{m.ativo ? "Ativo" : "Inativo"}</Badge></td>
             <td className="actions">
               <button className="icon-button" onClick={() => setEditingModelo(m)}>Editar</button>
@@ -675,6 +788,7 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
         </tbody>
       </table>
       {modelosCarregados && modelos.length === 0 && <Empty title="Nenhum modelo de recorrência" text="Cadastre um modelo para gerar tarefas automaticamente." />}
+      {modelosCarregados && modelos.length > 0 && modelosShown.length === 0 && <Empty title="Nenhum modelo para este responsável" text="Troque o filtro de responsável acima ou cadastre um modelo novo." />}
     </section>
 
     {open && <AccessibleModal label="Nova tarefa" onClose={() => setOpen(false)}><form className="modal" onSubmit={add}>
@@ -691,7 +805,10 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
         <small className="field-hint">{draft.natureza === "Interna" ? "Reunião ou atividade da própria equipe." : "Compromisso com uma empresa cliente."}</small>
       </div>
       {draft.natureza === "Externa" && companies.length > 0 && <label>Empresa<select value={draft.empresaId} onChange={(e) => setDraft({ ...draft, empresaId: e.target.value })}>{companies.map((c) => <option key={c.id} value={c.id}>{c.fantasia}</option>)}</select></label>}
-      <label>Responsável<select value={draft.responsavelId} onChange={(e) => setDraft({ ...draft, responsavelId: e.target.value })}><option value="">Sem responsável</option>{perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label>
+      <div className="field-block">
+        <span className="field-label">Responsáveis</span>
+        <ResponsavelPicker perfis={perfis} selecionados={draft.responsavelIds} onChange={(ids) => setDraft({ ...draft, responsavelIds: ids })} />
+      </div>
       <label>Vencimento<input type="date" value={draft.vencimento} onChange={(e) => setDraft({ ...draft, vencimento: e.target.value })} /></label>
       {semEmpresaExterna && <p className="inline-error">Nenhuma empresa cadastrada — cadastre uma no Onboarding para criar tarefas externas.</p>}
       <button className="primary" disabled={saving || semEmpresaExterna}>{saving ? "Salvando…" : "Salvar tarefa"}</button>
@@ -726,17 +843,17 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
       <div className="field-block">
         <span className="field-label">Repetição</span>
         <div className="segmented" role="group" aria-label="Repetição">
-          <button type="button" className={modeloDraft.repeticoesQuantidade === null ? "selected" : ""} onClick={() => setModeloDraft({ ...modeloDraft, repeticoesQuantidade: null, repeticoesUnidade: null })}>Sem data final</button>
-          <button type="button" className={modeloDraft.repeticoesQuantidade !== null ? "selected" : ""} onClick={iniciarRepeticaoLimitadaDraft}>Repetir por um período</button>
+          <button type="button" className={modeloDraft.modoRepeticao === "indefinido" ? "selected" : ""} onClick={() => setModeloDraft({ ...modeloDraft, modoRepeticao: "indefinido", repeteInicio: null, repeteFim: null })}>Sem data final</button>
+          <button type="button" className={modeloDraft.modoRepeticao === "periodo" ? "selected" : ""} onClick={() => setModeloDraft({ ...modeloDraft, modoRepeticao: "periodo" })}>Repetir por um período</button>
         </div>
-        <small className="field-hint">{modeloDraft.repeticoesQuantidade === null ? "Gera tarefas indefinidamente, todo mês." : "Para de gerar novas tarefas após o período informado."}</small>
-        {modeloDraft.repeticoesQuantidade !== null && <div className="field-grid">
-          <label>Quantidade<input type="number" min={1} required value={modeloDraft.repeticoesQuantidade} onChange={(e) => setModeloDraft({ ...modeloDraft, repeticoesQuantidade: Number(e.target.value) })} /></label>
-          <label>Unidade<select value={modeloDraft.repeticoesUnidade ?? unidadesValidas(modeloDraft.periodicidade)[0]} onChange={(e) => setModeloDraft({ ...modeloDraft, repeticoesUnidade: e.target.value as UnidadeRepeticao })}>{unidadesValidas(modeloDraft.periodicidade).map((u) => <option key={u} value={u}>{UNIDADE_TEXTO[u]}</option>)}</select></label>
-        </div>}
+        <small className="field-hint">{modeloDraft.modoRepeticao === "indefinido" ? `Gera tarefas indefinidamente, ${FREQUENCIA_TEXTO[modeloDraft.periodicidade]}.` : "Para de gerar novas tarefas após o período informado."}</small>
+        {modeloDraft.modoRepeticao === "periodo" && <RepeticaoRangePicker inicio={modeloDraft.repeteInicio} fim={modeloDraft.repeteFim} onChange={(i, f) => setModeloDraft({ ...modeloDraft, repeteInicio: i, repeteFim: f })} />}
       </div>
       {modeloDraft.natureza === "Externa" && companies.length > 0 && <label>Empresa<select value={modeloDraft.empresaId} onChange={(e) => setModeloDraft({ ...modeloDraft, empresaId: e.target.value })}>{companies.map((c) => <option key={c.id} value={c.id}>{c.fantasia}</option>)}</select></label>}
-      <label>Responsável<select value={modeloDraft.responsavelId} onChange={(e) => setModeloDraft({ ...modeloDraft, responsavelId: e.target.value })}><option value="">Sem responsável</option>{perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label>
+      <div className="field-block">
+        <span className="field-label">Responsáveis</span>
+        <ResponsavelPicker perfis={perfis} selecionados={modeloDraft.responsavelIds} onChange={(ids) => setModeloDraft({ ...modeloDraft, responsavelIds: ids })} />
+      </div>
       {semEmpresaExternaModelo && <p className="inline-error">Nenhuma empresa cadastrada — cadastre uma no Onboarding para criar modelos externos.</p>}
       <button className="primary" disabled={modeloSaving || semEmpresaExternaModelo}>{modeloSaving ? "Salvando…" : "Salvar modelo"}</button>
     </form></AccessibleModal>}
