@@ -5,6 +5,8 @@ import {
   avaliarSituacaoIrregular,
   avaliarDadosAusentes,
   avaliarRazaoSocialEEndereco,
+  avaliarCnaeEPorte,
+  avaliarLocalidade,
 } from "../lib/auditoria.ts";
 
 function empresaBase(overrides = {}) {
@@ -13,7 +15,10 @@ function empresaBase(overrides = {}) {
     cnpj: "11222333000181",
     razaoSocial: "Horizonte Distribuidora Ltda.",
     endereco: "Av. Paulista, 1000",
+    cidade: "São Paulo",
+    estado: "SP",
     cnaeCodigo: "4712-1/00",
+    cnaeDescricao: "Comércio de alimentos",
     porte: "Microempresa",
     situacaoCadastral: "Ativa",
     ...overrides,
@@ -181,4 +186,91 @@ test("avaliarRazaoSocialEEndereco: sinaliza razão social e endereço divergente
     divergencias.find((d) => d.tipo === "Endereço"),
     { empresaId: "empresa-1", tipo: "Endereço", atual: "Rua Velha, 1", sugerido: "Av. Paulista, 1000" },
   );
+});
+
+// --- avaliarCnaeEPorte (regra externa) ------------------------------------
+
+function dadosBrasilAPIBase(overrides = {}) {
+  return {
+    cnpj: "11222333000181",
+    razaoSocial: "Horizonte Distribuidora Ltda.",
+    fantasia: "Horizonte",
+    cidade: "São Paulo",
+    estado: "SP",
+    endereco: "Av. Paulista, 1000",
+    cnaeCodigo: "4712-1/00",
+    cnaeDescricao: "Comércio de alimentos",
+    porte: "Microempresa",
+    situacaoCadastral: "Ativa",
+    abertura: null,
+    socios: [],
+    ...overrides,
+  };
+}
+
+test("avaliarCnaeEPorte: retorna [] quando CNAE e porte batem com a BrasilAPI", () => {
+  const empresa = empresaBase();
+  assert.deepEqual(avaliarCnaeEPorte(empresa, dadosBrasilAPIBase()), []);
+});
+
+test("avaliarCnaeEPorte: sinaliza CNAE errado — o bug relatado (campo preenchido com valor incorreto passava batido)", () => {
+  const empresa = empresaBase({ cnaeCodigo: "0000-0/00" });
+  const divergencias = avaliarCnaeEPorte(empresa, dadosBrasilAPIBase());
+  assert.deepEqual(divergencias, [
+    { empresaId: "empresa-1", tipo: "CNAE", atual: "0000-0/00 · Comércio de alimentos", sugerido: "4712-1/00 · Comércio de alimentos" },
+  ]);
+});
+
+test("avaliarCnaeEPorte: sinaliza descrição do CNAE adulterada mesmo com o código certo — segundo bug relatado", () => {
+  const empresa = empresaBase({ cnaeDescricao: "Bancos Pinto" });
+  const divergencias = avaliarCnaeEPorte(empresa, dadosBrasilAPIBase());
+  assert.deepEqual(divergencias, [
+    { empresaId: "empresa-1", tipo: "CNAE", atual: "4712-1/00 · Bancos Pinto", sugerido: "4712-1/00 · Comércio de alimentos" },
+  ]);
+});
+
+test("avaliarCnaeEPorte: não sinaliza diferença só de máscara no CNAE (com ou sem hífen/barra)", () => {
+  const empresa = empresaBase({ cnaeCodigo: "47121 00" });
+  assert.deepEqual(avaliarCnaeEPorte(empresa, dadosBrasilAPIBase()), []);
+});
+
+test("avaliarCnaeEPorte: sinaliza porte errado com sugerido = valor da BrasilAPI", () => {
+  const empresa = empresaBase({ porte: "Grande porte" });
+  const divergencias = avaliarCnaeEPorte(empresa, dadosBrasilAPIBase());
+  assert.deepEqual(divergencias, [
+    { empresaId: "empresa-1", tipo: "Porte", atual: "Grande porte", sugerido: "Microempresa" },
+  ]);
+});
+
+test("avaliarCnaeEPorte: campo vazio não é sinalizado aqui — é responsabilidade de avaliarDadosAusentes", () => {
+  const empresa = empresaBase({ cnaeCodigo: "", porte: "" });
+  assert.deepEqual(avaliarCnaeEPorte(empresa, dadosBrasilAPIBase()), []);
+});
+
+// --- avaliarLocalidade (regra externa) ------------------------------------
+
+test("avaliarLocalidade: retorna [] quando cidade e estado batem com a BrasilAPI", () => {
+  const empresa = empresaBase();
+  assert.deepEqual(avaliarLocalidade(empresa, dadosBrasilAPIBase()), []);
+});
+
+test("avaliarLocalidade: sinaliza estado errado mesmo com a cidade certa — o bug relatado (RJ preenchido numa empresa que a fonte oficial diz SP)", () => {
+  const empresa = empresaBase({ estado: "RJ" });
+  const divergencias = avaliarLocalidade(empresa, dadosBrasilAPIBase());
+  assert.deepEqual(divergencias, [
+    { empresaId: "empresa-1", tipo: "Localidade", atual: "São Paulo/RJ", sugerido: "São Paulo/SP" },
+  ]);
+});
+
+test("avaliarLocalidade: sinaliza cidade errada mesmo com o estado certo", () => {
+  const empresa = empresaBase({ cidade: "Campinas" });
+  const divergencias = avaliarLocalidade(empresa, dadosBrasilAPIBase());
+  assert.deepEqual(divergencias, [
+    { empresaId: "empresa-1", tipo: "Localidade", atual: "Campinas/SP", sugerido: "São Paulo/SP" },
+  ]);
+});
+
+test("avaliarLocalidade: campos vazios não são sinalizados aqui — é responsabilidade de avaliarDadosAusentes", () => {
+  const empresa = empresaBase({ cidade: "", estado: "" });
+  assert.deepEqual(avaliarLocalidade(empresa, dadosBrasilAPIBase()), []);
 });

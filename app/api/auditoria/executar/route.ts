@@ -8,7 +8,7 @@ import {
   type DivergenciaDetectada,
 } from "@/lib/auditoria";
 import { BrasilAPIError } from "@/lib/brasilapi";
-import { consultarCNPJComCache } from "@/lib/cnpj-cache";
+import { consultarVariosCNPJsComCache } from "@/lib/cnpj-cache";
 
 type ExecutarAuditoriaPayload = {
   incluirRegrasExternas?: boolean;
@@ -68,7 +68,10 @@ function paraEmpresaParaAuditoria(row: EmpresaRow): EmpresaParaAuditoria {
     cnpj: row.cnpj,
     razaoSocial: row.razao_social,
     endereco: row.endereco,
+    cidade: row.cidade,
+    estado: row.estado,
     cnaeCodigo: row.cnae_codigo,
+    cnaeDescricao: row.cnae_descricao,
     porte: row.porte,
     situacaoCadastral: row.situacao_cadastral,
   };
@@ -215,29 +218,46 @@ export async function POST(request: Request) {
   // conjunto avaliado para "Razão social"/"Endereço" — divergências
   // Pendentes existentes desses tipos ficam intocadas nesta execução.
   if (incluirRegrasExternas) {
+    // Um único lote cobre todas as empresas do escritório (SELECT em massa no
+    // cache + reconsultas em paralelo só para quem precisa) em vez de um
+    // `await` por empresa em série — era isso que fazia "Revalidar carteira"
+    // demorar proporcionalmente ao tamanho da carteira (ver `lib/cnpj-cache.ts`).
+    const resultadosPorCnpj = await consultarVariosCNPJsComCache(
+      supabase,
+      empresas.map((empresa) => empresa.cnpj),
+    );
+
     for (const empresa of empresas) {
-      try {
-        const dadosBrasilAPI = await consultarCNPJComCache(supabase, empresa.cnpj);
-        detectadas.push(...avaliarRegrasExternas(empresa, dadosBrasilAPI));
-        const dadosAusentes = avaliarDadosAusentes(empresa, dadosBrasilAPI);
-        if (dadosAusentes) detectadas.push(dadosAusentes);
-        // Consulta OK: razão social, endereço e dados ausentes desta empresa
-        // foram de fato reavaliados contra a BrasilAPI/cache nesta execução.
-        chavesAvaliadasNestaExecucao.add(chaveDivergencia(empresa.id, "Razão social"));
-        chavesAvaliadasNestaExecucao.add(chaveDivergencia(empresa.id, "Endereço"));
-        chavesAvaliadasNestaExecucao.add(chaveDivergencia(empresa.id, "Dados ausentes"));
-      } catch (err) {
+      const resultado = resultadosPorCnpj.get(empresa.cnpj.replace(/\D/g, ""));
+
+      if (!resultado || !resultado.ok) {
         // Uma consulta individual falhando (404/429/502) não pode abortar
         // a rotina inteira — a empresa é pulada e o erro é apenas logado.
-        // Como esta empresa não entra no conjunto avaliado acima, eventuais
-        // divergências Pendentes de "Razão social"/"Endereço" já existentes
-        // para ela são preservadas (não resolvidas por engano).
+        // Como esta empresa não entra no conjunto avaliado abaixo, eventuais
+        // divergências Pendentes de "Razão social"/"Endereço"/"CNAE"/"Porte"
+        // já existentes para ela são preservadas (não resolvidas por engano).
+        const err = resultado?.erro;
         if (err instanceof BrasilAPIError) {
           console.error(`BrasilAPI falhou para empresa ${empresa.id} (status ${err.status}): ${err.message}`);
-        } else {
+        } else if (err !== undefined) {
           console.error(`Erro inesperado ao reconsultar BrasilAPI para empresa ${empresa.id}:`, err);
         }
+        continue;
       }
+
+      const dadosBrasilAPI = resultado.dados;
+      detectadas.push(...avaliarRegrasExternas(empresa, dadosBrasilAPI));
+      const dadosAusentes = avaliarDadosAusentes(empresa, dadosBrasilAPI);
+      if (dadosAusentes) detectadas.push(dadosAusentes);
+      // Consulta OK: razão social, endereço, CNAE, porte e dados ausentes
+      // desta empresa foram de fato reavaliados contra a BrasilAPI/cache
+      // nesta execução.
+      chavesAvaliadasNestaExecucao.add(chaveDivergencia(empresa.id, "Razão social"));
+      chavesAvaliadasNestaExecucao.add(chaveDivergencia(empresa.id, "Endereço"));
+      chavesAvaliadasNestaExecucao.add(chaveDivergencia(empresa.id, "Localidade"));
+      chavesAvaliadasNestaExecucao.add(chaveDivergencia(empresa.id, "CNAE"));
+      chavesAvaliadasNestaExecucao.add(chaveDivergencia(empresa.id, "Porte"));
+      chavesAvaliadasNestaExecucao.add(chaveDivergencia(empresa.id, "Dados ausentes"));
     }
   }
 

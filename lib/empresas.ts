@@ -139,7 +139,7 @@ export function validarCamposDaEmpresa(
       ["Situação cadastral", payload.situacaoCadastral, LIMITES.classificacao],
       ["Observações", payload.observacoes, LIMITES.observacoes],
     ]) ??
-    validarListaTexto("Tags", payload.tags, LIMITES.tags, LIMITES.tag) ??
+    validarListaTexto("Tags", payload.tags, Infinity, LIMITES.tag) ??
     validarSocios(payload.socios)
   );
 }
@@ -147,7 +147,6 @@ export function validarCamposDaEmpresa(
 function validarSocios(socios: EmpresaComTextos["socios"]): string | null {
   if (socios === undefined || socios === null) return null;
   if (!Array.isArray(socios)) return "Sócios deve ser uma lista.";
-  if (socios.length > LIMITES.socios) return `Sócios aceita no máximo ${LIMITES.socios} itens.`;
 
   for (const socio of socios) {
     const erro = validarCampos([

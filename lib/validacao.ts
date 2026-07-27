@@ -23,8 +23,6 @@ export const LIMITES = {
   classificacao: 60,
   observacoes: 4000,
   tag: 40,
-  tags: 30,
-  socios: 50,
   busca: 120,
 } as const;
 

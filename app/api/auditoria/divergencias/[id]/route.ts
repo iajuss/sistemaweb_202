@@ -13,13 +13,16 @@ type DivergenciaResumo = {
   sugerido: string | null;
 };
 
-// Só "Razão social" e "Endereço" têm um campo correspondente em `empresas`
-// para receber o valor sugerido — as demais divergências (CNPJ inválido,
-// Duplicidade, Situação irregular, Dados ausentes) não têm uma ação
-// automática de correção, só revisar/ignorar.
-const CAMPO_POR_TIPO: Record<string, "razao_social" | "endereco"> = {
+// "Razão social", "Endereço" e "Porte" têm um único campo correspondente em
+// `empresas` para receber o valor sugerido. "CNAE" e "Localidade" são
+// tratados à parte (mais abaixo) porque cada um precisa gravar dois campos
+// juntos (código+descrição; cidade+estado). As demais divergências (CNPJ
+// inválido, Duplicidade, Situação irregular, Dados ausentes) não têm uma
+// ação automática de correção, só revisar/ignorar.
+const CAMPO_POR_TIPO: Record<string, "razao_social" | "endereco" | "porte"> = {
   "Razão social": "razao_social",
   Endereço: "endereco",
+  Porte: "porte",
 };
 
 // PATCH /api/auditoria/divergencias/:id — aplica uma ação sobre uma
@@ -148,6 +151,153 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       const reversao: Record<string, string> = {};
       for (const campo of Object.keys(atualizacoes)) reversao[campo] = "";
       await supabase.from("empresas").update({ ...reversao, atualizado_em: new Date().toISOString() }).eq("id", divergencia.empresa_id);
+
+      return applySetCookies(
+        Response.json({ error: "Não foi possível marcar a divergência como resolvida." }, { status: 500 }),
+      );
+    }
+  } else if (acao === "aplicar_sugestao" && divergencia.tipo === "CNAE") {
+    if (divergencia.sugerido === null) {
+      return applySetCookies(
+        Response.json({ error: "Esta divergência não tem sugestão para aplicar." }, { status: 400 }),
+      );
+    }
+
+    // Código e descrição corretos são sempre reconsultados do cache/API,
+    // nunca parseados de volta do texto livre de `sugerido`/`atual` (mesmo
+    // cuidado do ramo "Dados ausentes" acima) — `atual` aqui é só
+    // "código · descrição" para exibição, não dá pra separar os dois com
+    // segurança (a descrição pode conter o mesmo separador).
+    const { data: empresaAtualDados, error: empresaBuscarError } = await supabase
+      .from("empresas")
+      .select("cnpj, cnae_codigo, cnae_descricao")
+      .eq("id", divergencia.empresa_id)
+      .maybeSingle();
+
+    if (empresaBuscarError || !empresaAtualDados) {
+      return applySetCookies(
+        Response.json({ error: "Não foi possível carregar a empresa para aplicar a sugestão." }, { status: 500 }),
+      );
+    }
+
+    const empresaAntesDaCnae = empresaAtualDados as { cnpj: string; cnae_codigo: string; cnae_descricao: string };
+
+    let dadosBrasilAPI;
+    try {
+      dadosBrasilAPI = await consultarCNPJComCache(supabase, empresaAntesDaCnae.cnpj);
+    } catch {
+      return applySetCookies(
+        Response.json({ error: "Não foi possível reconsultar os dados da empresa para aplicar a sugestão." }, { status: 502 }),
+      );
+    }
+
+    const { data: empresaAtualizada, error: empresaError } = await supabase
+      .from("empresas")
+      .update({
+        cnae_codigo: dadosBrasilAPI.cnaeCodigo,
+        cnae_descricao: dadosBrasilAPI.cnaeDescricao,
+        atualizado_em: new Date().toISOString(),
+      })
+      .eq("id", divergencia.empresa_id)
+      .select("id")
+      .maybeSingle();
+
+    if (empresaError || !empresaAtualizada) {
+      return applySetCookies(
+        Response.json({ error: "Não foi possível atualizar a empresa com a sugestão." }, { status: 500 }),
+      );
+    }
+
+    const { data: divergenciaResolvida, error: resolverError } = await supabase
+      .from("divergencias")
+      .update({ status: "Revisado", resolvido_em: new Date().toISOString() })
+      .eq("id", id)
+      .select("id")
+      .maybeSingle();
+
+    if (resolverError || !divergenciaResolvida) {
+      // Compensação, mesmo princípio dos outros ramos: reverte para os
+      // valores originais das colunas (capturados acima), nunca parseados de
+      // `divergencia.atual`.
+      await supabase
+        .from("empresas")
+        .update({
+          cnae_codigo: empresaAntesDaCnae.cnae_codigo,
+          cnae_descricao: empresaAntesDaCnae.cnae_descricao,
+          atualizado_em: new Date().toISOString(),
+        })
+        .eq("id", divergencia.empresa_id);
+
+      return applySetCookies(
+        Response.json({ error: "Não foi possível marcar a divergência como resolvida." }, { status: 500 }),
+      );
+    }
+  } else if (acao === "aplicar_sugestao" && divergencia.tipo === "Localidade") {
+    if (divergencia.sugerido === null) {
+      return applySetCookies(
+        Response.json({ error: "Esta divergência não tem sugestão para aplicar." }, { status: 400 }),
+      );
+    }
+
+    // Mesmo cuidado do ramo "CNAE": cidade e estado corretos vêm sempre do
+    // cache/API reconsultado, nunca parseados de "cidade/estado" (nome de
+    // cidade pode conter "/").
+    const { data: empresaAtualDados, error: empresaBuscarError } = await supabase
+      .from("empresas")
+      .select("cnpj, cidade, estado")
+      .eq("id", divergencia.empresa_id)
+      .maybeSingle();
+
+    if (empresaBuscarError || !empresaAtualDados) {
+      return applySetCookies(
+        Response.json({ error: "Não foi possível carregar a empresa para aplicar a sugestão." }, { status: 500 }),
+      );
+    }
+
+    const empresaAntesDaLocalidade = empresaAtualDados as { cnpj: string; cidade: string; estado: string };
+
+    let dadosBrasilAPI;
+    try {
+      dadosBrasilAPI = await consultarCNPJComCache(supabase, empresaAntesDaLocalidade.cnpj);
+    } catch {
+      return applySetCookies(
+        Response.json({ error: "Não foi possível reconsultar os dados da empresa para aplicar a sugestão." }, { status: 502 }),
+      );
+    }
+
+    const { data: empresaAtualizada, error: empresaError } = await supabase
+      .from("empresas")
+      .update({
+        cidade: dadosBrasilAPI.cidade,
+        estado: dadosBrasilAPI.estado,
+        atualizado_em: new Date().toISOString(),
+      })
+      .eq("id", divergencia.empresa_id)
+      .select("id")
+      .maybeSingle();
+
+    if (empresaError || !empresaAtualizada) {
+      return applySetCookies(
+        Response.json({ error: "Não foi possível atualizar a empresa com a sugestão." }, { status: 500 }),
+      );
+    }
+
+    const { data: divergenciaResolvida, error: resolverError } = await supabase
+      .from("divergencias")
+      .update({ status: "Revisado", resolvido_em: new Date().toISOString() })
+      .eq("id", id)
+      .select("id")
+      .maybeSingle();
+
+    if (resolverError || !divergenciaResolvida) {
+      await supabase
+        .from("empresas")
+        .update({
+          cidade: empresaAntesDaLocalidade.cidade,
+          estado: empresaAntesDaLocalidade.estado,
+          atualizado_em: new Date().toISOString(),
+        })
+        .eq("id", divergencia.empresa_id);
 
       return applySetCookies(
         Response.json({ error: "Não foi possível marcar a divergência como resolvida." }, { status: 500 }),

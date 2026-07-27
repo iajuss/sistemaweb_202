@@ -13,14 +13,17 @@ export type EmpresaParaAuditoria = {
   cnpj: string;
   razaoSocial: string;
   endereco: string;
+  cidade: string;
+  estado: string;
   cnaeCodigo: string;
+  cnaeDescricao: string;
   porte: string;
   situacaoCadastral: string;
 };
 
 export type DivergenciaDetectada = {
   empresaId: string;
-  tipo: "CNPJ inválido" | "Duplicidade" | "Razão social" | "Endereço" | "Situação irregular" | "Dados ausentes";
+  tipo: "CNPJ inválido" | "Duplicidade" | "Razão social" | "Endereço" | "Localidade" | "CNAE" | "Porte" | "Situação irregular" | "Dados ausentes";
   atual: string;
   sugerido: string | null;
   // Só "Duplicidade" tem uma "outra empresa" do par — usado no frontend para
@@ -167,10 +170,100 @@ export function avaliarRazaoSocialEEndereco(
   return divergencias;
 }
 
+/** Só dígitos — CNAE aceita ser digitado com ou sem a máscara "0000-0/00" sem virar falso positivo. */
+function normalizarCnae(codigo: string): string {
+  return codigo.replace(/\D/g, "");
+}
+
+/**
+ * Compara CNAE e porte salvos com a reconsulta à BrasilAPI. Antes desta
+ * função, um CNAE ou porte incorretos só eram sinalizados enquanto o campo
+ * estivesse vazio (`avaliarDadosAusentes`) — preencher o campo com QUALQUER
+ * valor, mesmo errado, fazia a divergência "Dados ausentes" desaparecer sem
+ * que nada mais verificasse se o valor batia com a fonte oficial. Só compara
+ * quando o campo já está preenchido: vazio continua sendo responsabilidade
+ * exclusiva de `avaliarDadosAusentes`, para não reportar duas divergências
+ * (tipos diferentes) para o mesmo campo vazio ao mesmo tempo.
+ */
+export function avaliarCnaeEPorte(
+  empresa: EmpresaParaAuditoria,
+  dadosBrasilAPI: EmpresaBrasilAPI,
+): DivergenciaDetectada[] {
+  const divergencias: DivergenciaDetectada[] = [];
+
+  // Código E descrição entram na mesma comparação: um código certo com
+  // descrição adulterada (ou vice-versa) é tão inconsistente quanto os dois
+  // errados — código sozinho batendo não é garantia de que o registro
+  // inteiro está correto.
+  const codigoBate = empresa.cnaeCodigo.trim() === "" || normalizarCnae(empresa.cnaeCodigo) === normalizarCnae(dadosBrasilAPI.cnaeCodigo);
+  const descricaoBate = empresa.cnaeDescricao.trim() === "" || normalizarParaComparacao(empresa.cnaeDescricao) === normalizarParaComparacao(dadosBrasilAPI.cnaeDescricao);
+
+  if (empresa.cnaeCodigo.trim() !== "" && (!codigoBate || !descricaoBate)) {
+    divergencias.push({
+      empresaId: empresa.id,
+      tipo: "CNAE",
+      atual: [empresa.cnaeCodigo, empresa.cnaeDescricao].filter(Boolean).join(" · "),
+      sugerido: [dadosBrasilAPI.cnaeCodigo, dadosBrasilAPI.cnaeDescricao].filter(Boolean).join(" · "),
+    });
+  }
+
+  if (
+    empresa.porte.trim() !== "" &&
+    normalizarParaComparacao(empresa.porte) !== normalizarParaComparacao(dadosBrasilAPI.porte)
+  ) {
+    divergencias.push({
+      empresaId: empresa.id,
+      tipo: "Porte",
+      atual: empresa.porte,
+      sugerido: dadosBrasilAPI.porte,
+    });
+  }
+
+  return divergencias;
+}
+
+/**
+ * Compara cidade e estado salvos com a reconsulta à BrasilAPI — mesmo
+ * princípio de `avaliarCnaeEPorte`: um valor preenchido mas errado (ex.:
+ * "RJ" numa empresa que a fonte oficial diz ser de "SP") não caía em
+ * nenhuma regra existente. Cidade e estado viram uma única divergência
+ * ("Localidade"), já que os dois sempre viajam juntos no cadastro e na tela
+ * de comparação de duplicidade.
+ */
+export function avaliarLocalidade(
+  empresa: EmpresaParaAuditoria,
+  dadosBrasilAPI: EmpresaBrasilAPI,
+): DivergenciaDetectada[] {
+  const cidadeVazia = empresa.cidade.trim() === "";
+  const estadoVazio = empresa.estado.trim() === "";
+
+  if (cidadeVazia && estadoVazio) {
+    return [];
+  }
+
+  const cidadeBate = cidadeVazia || normalizarParaComparacao(empresa.cidade) === normalizarParaComparacao(dadosBrasilAPI.cidade);
+  const estadoBate = estadoVazio || normalizarParaComparacao(empresa.estado) === normalizarParaComparacao(dadosBrasilAPI.estado);
+
+  if (cidadeBate && estadoBate) {
+    return [];
+  }
+
+  return [{
+    empresaId: empresa.id,
+    tipo: "Localidade",
+    atual: `${empresa.cidade}/${empresa.estado}`,
+    sugerido: `${dadosBrasilAPI.cidade}/${dadosBrasilAPI.estado}`,
+  }];
+}
+
 /** Roda as regras externas (reconsulta BrasilAPI, já resolvida pelo chamador) para uma empresa. */
 export function avaliarRegrasExternas(
   empresa: EmpresaParaAuditoria,
   dadosBrasilAPI: EmpresaBrasilAPI,
 ): DivergenciaDetectada[] {
-  return avaliarRazaoSocialEEndereco(empresa, dadosBrasilAPI);
+  return [
+    ...avaliarRazaoSocialEEndereco(empresa, dadosBrasilAPI),
+    ...avaliarCnaeEPorte(empresa, dadosBrasilAPI),
+    ...avaliarLocalidade(empresa, dadosBrasilAPI),
+  ];
 }
