@@ -12,6 +12,34 @@ function focaveis(container: HTMLElement) {
     .filter((elemento) => !elemento.hasAttribute("hidden"));
 }
 
+// Contador global (não por componente) de quantos bloqueios de rolagem estão
+// ativos ao mesmo tempo — necessário porque modais podem se aninhar (ex.:
+// "Resolver duplicidade" abre "Confirmar exclusão" por cima). Guardar/
+// restaurar um único valor "anterior" por modal (o que este código fazia
+// antes) fica errado nesse caso: dois modais que travam e destravam em
+// qualquer ordem que não seja estritamente LIFO podiam deixar
+// `document.body.style.overflow` preso em "hidden" para sempre — só um F5
+// resolvia, porque é um estilo aplicado via JS, não algo do CSS/layout. Um
+// contador nunca depende de ordem: trava no primeiro `bloquear`, destrava só
+// quando o último `liberar` correspondente zera o contador.
+let travasDeRolagemAtivas = 0;
+let overflowOriginalDoBody = "";
+
+export function bloquearRolagemDocumento() {
+  if (travasDeRolagemAtivas === 0) {
+    overflowOriginalDoBody = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+  }
+  travasDeRolagemAtivas += 1;
+}
+
+export function liberarRolagemDocumento() {
+  travasDeRolagemAtivas = Math.max(0, travasDeRolagemAtivas - 1);
+  if (travasDeRolagemAtivas === 0) {
+    document.body.style.overflow = overflowOriginalDoBody;
+  }
+}
+
 /** Modal compartilhado: fecha por Escape/overlay, prende o foco e bloqueia a rolagem do documento. */
 export function AccessibleModal({ label, onClose, children }: { label: string; onClose: () => void; children: ReactNode }) {
   const contentRef = useRef<HTMLDivElement>(null);
@@ -19,8 +47,7 @@ export function AccessibleModal({ label, onClose, children }: { label: string; o
 
   useEffect(() => {
     const elementoAnterior = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const overflowAnterior = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    bloquearRolagemDocumento();
 
     const frame = requestAnimationFrame(() => {
       const content = contentRef.current;
@@ -56,7 +83,7 @@ export function AccessibleModal({ label, onClose, children }: { label: string; o
     return () => {
       cancelAnimationFrame(frame);
       document.removeEventListener("keydown", aoTeclar);
-      document.body.style.overflow = overflowAnterior;
+      liberarRolagemDocumento();
       elementoAnterior?.focus();
     };
   }, []);
