@@ -259,6 +259,18 @@ export async function listarEquipe(): Promise<MembroEquipe[]> {
   return response.json();
 }
 
+/** PATCH /api/equipe/:id — ativa ou desativa o acesso de um funcionário. */
+export async function atualizarMembroEquipe(id: string, ativo: boolean): Promise<void> {
+  const response = await fetch(`/api/equipe/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ativo }),
+  });
+  if (!response.ok) {
+    throw new Error(await extrairMensagemDeErro(response, "Não foi possível atualizar o funcionário."));
+  }
+}
+
 /** POST /api/equipe/convites — convida um funcionário por e-mail (só o responsável). */
 export async function convidarFuncionario(email: string): Promise<void> {
   const response = await fetch("/api/equipe/convites", {
