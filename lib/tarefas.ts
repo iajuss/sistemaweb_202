@@ -38,7 +38,6 @@ export type TarefaRow = {
   empresa_id: string;
   titulo: string;
   tipo: string;
-  responsavel_id: string | null;
   vencimento: string;
   status: string;
   concluido_em: string | null;
@@ -49,10 +48,10 @@ export type TarefaRow = {
   // (sem modelo).
   modelo: { ativo: boolean } | null;
   empresa: { fantasia: string } | null;
-  responsavel: { nome: string } | null;
+  responsaveis: { perfil: { id: string; nome: string } }[];
 };
 
-export const TAREFA_SELECT = "*, empresa:empresas(fantasia), responsavel:perfis(nome), modelo:modelos_recorrencia(ativo)";
+export const TAREFA_SELECT = "*, empresa:empresas(fantasia), modelo:modelos_recorrencia(ativo), responsaveis:tarefas_responsaveis(perfil:perfis(id,nome))";
 
 type ModeloRecorrenciaParaGeracao = {
   id: string;
@@ -63,10 +62,10 @@ type ModeloRecorrenciaParaGeracao = {
   dia_referencia: number;
   dias_semana: number[] | null;
   mes_referencia: number | null;
-  responsavel_id: string | null;
   repeticoes_quantidade: number | null;
   repeticoes_unidade: string | null;
   criado_em: string;
+  responsaveis: { perfil_id: string }[];
 };
 
 /** Último dia do mês (1-12) do `ano` pedido, em UTC. */
@@ -271,7 +270,7 @@ export function calcularVencimentosDoModelo(params: {
 export async function gerarTarefasDoMes(supabase: SupabaseClient, escritorioId: string, mes: string): Promise<void> {
   const { data: modelos, error: modelosError } = await supabase
     .from("modelos_recorrencia")
-    .select("id, empresa_id, titulo, tipo, periodicidade, dia_referencia, dias_semana, mes_referencia, responsavel_id, repeticoes_quantidade, repeticoes_unidade, criado_em")
+    .select("id, empresa_id, titulo, tipo, periodicidade, dia_referencia, dias_semana, mes_referencia, repeticoes_quantidade, repeticoes_unidade, criado_em, responsaveis:modelos_recorrencia_responsaveis(perfil_id)")
     .eq("escritorio_id", escritorioId)
     .eq("ativo", true);
 
@@ -315,26 +314,35 @@ export async function gerarTarefasDoMes(supabase: SupabaseClient, escritorioId: 
         empresa_id: modelo.empresa_id,
         titulo: modelo.titulo,
         tipo: modelo.tipo,
-        responsavel_id: modelo.responsavel_id,
         vencimento,
         status: "Pendente",
       };
 
-      const { error: upsertError } = await supabase
+      const { data: inserida, error: upsertError } = await supabase
         .from("tarefas")
-        .upsert(novaTarefa, { onConflict: "modelo_id,vencimento", ignoreDuplicates: true });
+        .upsert(novaTarefa, { onConflict: "modelo_id,vencimento", ignoreDuplicates: true })
+        .select("id")
+        .maybeSingle();
 
       if (upsertError?.code === "42P10") {
         // Migração 0007 (índice único sem predicado) ainda não foi aplicada
         // no banco — ON CONFLICT não tem constraint pra casar. Cai para um
         // insert comum (mesma proteção de antes desta correção, só o select
         // de fast path acima) até a migração ser aplicada manualmente.
-        const { error: insertError } = await supabase.from("tarefas").insert(novaTarefa);
+        const { data: inseridaFallback, error: insertError } = await supabase
+          .from("tarefas")
+          .insert(novaTarefa)
+          .select("id")
+          .single();
         if (insertError) {
           console.error(`Erro ao gerar tarefa do modelo ${modelo.id} para ${vencimento} (fallback sem upsert):`, insertError);
+        } else if (inseridaFallback && modelo.responsaveis.length > 0) {
+          await substituirResponsaveisTarefa(supabase, inseridaFallback.id, modelo.responsaveis.map((r) => r.perfil_id));
         }
       } else if (upsertError) {
         console.error(`Erro ao gerar tarefa do modelo ${modelo.id} para ${vencimento}:`, upsertError);
+      } else if (inserida && modelo.responsaveis.length > 0) {
+        await substituirResponsaveisTarefa(supabase, inserida.id, modelo.responsaveis.map((r) => r.perfil_id));
       }
     }
   }
@@ -349,6 +357,7 @@ export async function gerarTarefasDoMes(supabase: SupabaseClient, escritorioId: 
 export function paraShapeFrontend(row: TarefaRow, feriados: Feriado[], hojeISO: string) {
   const statusEfetivo = row.status === "Pendente" && row.vencimento < hojeISO ? "Atrasada" : row.status;
   const feriado = feriados.find((f) => f.data === row.vencimento) ?? null;
+  const responsaveis = row.responsaveis.map((r) => r.perfil);
 
   return {
     id: row.id,
@@ -357,13 +366,33 @@ export function paraShapeFrontend(row: TarefaRow, feriados: Feriado[], hojeISO: 
     empresa: row.empresa?.fantasia ?? "",
     titulo: row.titulo,
     tipo: row.tipo,
-    responsavelId: row.responsavel_id,
-    responsavel: row.responsavel?.nome ?? "",
+    responsavelIds: responsaveis.map((p) => p.id),
+    responsaveis: responsaveis.map((p) => p.nome),
     vencimento: row.vencimento,
     status: statusEfetivo,
     concluidoEm: row.concluido_em,
     coincideComFeriado: feriado ? { nome: feriado.nome } : null,
   };
+}
+
+/**
+ * Substitui a lista inteira de responsáveis de uma tarefa: apaga todas as
+ * ligações existentes e insere as novas. Usado por POST (lista vazia antes,
+ * sem efeito o delete) e PATCH (substitui de fato) — nunca faz diff
+ * incremental, mais simples e sempre consistente.
+ */
+export async function substituirResponsaveisTarefa(
+  supabase: SupabaseClient,
+  tarefaId: string,
+  perfilIds: string[],
+) {
+  const { error: erroDelete } = await supabase.from("tarefas_responsaveis").delete().eq("tarefa_id", tarefaId);
+  if (erroDelete) return erroDelete;
+  if (perfilIds.length === 0) return null;
+  const { error: erroInsert } = await supabase
+    .from("tarefas_responsaveis")
+    .insert(perfilIds.map((perfilId) => ({ tarefa_id: tarefaId, perfil_id: perfilId })));
+  return erroInsert;
 }
 
 /**
