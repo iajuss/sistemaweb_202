@@ -16,7 +16,11 @@ export async function GET() {
     return Response.json({ error: "Não autenticado." }, { status: 401 });
   }
 
-  const { data, error } = await supabase.from("perfis").select("id, nome").order("nome", { ascending: true });
+  const { data, error } = await supabase
+    .from("perfis")
+    .select("id, nome")
+    .eq("ativo", true)
+    .order("nome", { ascending: true });
 
   if (error) {
     return Response.json({ error: "Não foi possível carregar os perfis." }, { status: 500 });
