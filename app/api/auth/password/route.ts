@@ -3,7 +3,7 @@ import { ipDoRequest } from "@/lib/rate-limit";
 import { registrarEvento } from "@/lib/auditoria-seguranca";
 
 export async function POST(request: Request) {
-  let payload: { senha?: string };
+  let payload: { senhaAtual?: string; senha?: string };
 
   try {
     payload = (await request.json()) as { senha?: string };
@@ -11,12 +11,26 @@ export async function POST(request: Request) {
     return Response.json({ error: "Informe a nova senha." }, { status: 400 });
   }
 
+  const senhaAtual = payload.senhaAtual ?? "";
   const senha = payload.senha ?? "";
+  if (!senhaAtual) {
+    return Response.json({ error: "Informe a senha atual." }, { status: 400 });
+  }
   if (senha.length < 8) {
     return Response.json({ error: "A senha deve ter ao menos 8 caracteres." }, { status: 400 });
   }
 
   const { supabase, applySetCookies } = await createSupabaseRouteHandlerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user?.email) return applySetCookies(Response.json({ error: "Não foi possível confirmar a conta." }, { status: 401 }));
+
+  // Reautentica a própria conta antes de alterar a credencial. A mensagem é
+  // propositalmente genérica para não revelar detalhes sobre a autenticação.
+  const { error: erroSenhaAtual } = await supabase.auth.signInWithPassword({ email: user.email, password: senhaAtual });
+  if (erroSenhaAtual) {
+    return applySetCookies(Response.json({ error: "A senha atual está incorreta." }, { status: 401 }));
+  }
+
   const { error } = await supabase.auth.updateUser({ password: senha });
 
   if (error) {

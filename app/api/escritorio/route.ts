@@ -21,7 +21,7 @@ export async function GET() {
 
   const { data: escritorio, error } = await supabase
     .from("escritorios")
-    .select("nome")
+    .select("nome, logo_path")
     .eq("id", perfil.escritorio_id)
     .single();
 
@@ -29,7 +29,10 @@ export async function GET() {
     return Response.json({ error: "Não foi possível carregar o escritório." }, { status: 500 });
   }
 
-  return Response.json({ nome: escritorio.nome });
+  const logoUrl = escritorio.logo_path
+    ? supabase.storage.from("logos-clientes").getPublicUrl(escritorio.logo_path).data.publicUrl
+    : null;
+  return Response.json({ nome: escritorio.nome, logoUrl });
 }
 
 // PATCH /api/escritorio — renomeia o escritório. Só o responsável pode
@@ -77,6 +80,9 @@ export async function PATCH(request: Request) {
     .single();
 
   if (error || !escritorioAtualizado) {
+    if (error?.code === "42501") {
+      return applySetCookies(Response.json({ error: "O banco ainda não liberou a alteração do escritório. Execute a migração 0023 no Supabase." }, { status: 503 }));
+    }
     return applySetCookies(Response.json({ error: "Não foi possível atualizar o escritório." }, { status: 500 }));
   }
 
