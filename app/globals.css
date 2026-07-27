@@ -203,3 +203,11 @@ html[data-vision="colorblind"][data-vision="colorblind"][data-vision="colorblind
    herdados do tempo em que o ícone era um glifo de texto. */
 .sidebar nav button .nav-icon,.sidebar.collapsed.sidebar nav button .nav-icon,.sidebar-footer .nav-icon{width:18px;height:18px;font-size:0;text-align:initial}
 .brand-logo{max-height:28px;max-width:132px;object-fit:contain;flex:none}
+
+/* Rodapé da barra lateral alinhado com as abas. */
+/* As abas ficam a 24px da borda (12px do <nav> + 12px do botão) com espaço
+   de 14px até o rótulo; o rodapé usava 18px + 7px e espaço de 12px, o que
+   deixava ícone e texto 1px fora do eixo. Especificidade alta porque a
+   versão recolhida redefine o padding com dois `.sidebar`. */
+.sidebar .sidebar-footer,.sidebar.collapsed.sidebar .sidebar-footer{padding-left:12px;padding-right:12px}
+.sidebar .sidebar-settings,.sidebar .sidebar-logout,.sidebar.collapsed.sidebar .sidebar-footer button{padding-left:12px;padding-right:12px;gap:14px}

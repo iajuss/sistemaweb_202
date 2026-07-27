@@ -32,17 +32,22 @@ function NavIcon({ children }: { children: ReactNode }) {
 }
 
 const ICONE_CONFIGURACOES = <><path d="M3 6h8.1M15.9 6H17M3 14h1.1M8.9 14H17" /><circle cx="13.5" cy="6" r="1.9" /><circle cx="6.5" cy="14" r="1.9" /></>;
-const ICONE_SAIR = <><path d="M11.75 3.5H5.75A1.25 1.25 0 0 0 4.5 4.75v10.5a1.25 1.25 0 0 0 1.25 1.25h6" /><path d="M9.5 10h8" /><path d="m14.75 7.25 2.75 2.75-2.75 2.75" /></>;
+// Porta mais estreita e mais baixa que a seta: a porta é densa e a seta é
+// fina, então uma porta de altura total puxava o centro óptico 1,5 unidade
+// para a esquerda.
+const ICONE_SAIR = <><path d="M10.25 4.25H6A1.25 1.25 0 0 0 4.75 5.5v9A1.25 1.25 0 0 0 6 15.75h4.25" /><path d="M9.5 10h8" /><path d="m14.9 7.15 2.85 2.85-2.85 2.85" /></>;
 
 const nav: { label: View; icon: ReactNode }[] = [
   // Painel 2x2: "visão geral" da operação, não uma casa.
   { label: "Visão geral", icon: <><rect x="2.75" y="2.75" width="6" height="6" rx="1.4" /><rect x="11.25" y="2.75" width="6" height="6" rx="1.4" /><rect x="2.75" y="11.25" width="6" height="6" rx="1.4" /><rect x="11.25" y="11.25" width="6" height="6" rx="1.4" /></> },
-  // Prédio com "+": incluir uma empresa na carteira.
-  { label: "Onboarding", icon: <><path d="M3.25 17.25V5.5A1.25 1.25 0 0 1 4.5 4.25h5A1.25 1.25 0 0 1 10.75 5.5v11.75" /><path d="M2 17.25h10.75" /><path d="M5.75 7.75h2.25M5.75 11h2.25M5.75 14.25h2.25" /><path d="M15.5 6.75v5M13 9.25h5" /></> },
+  // Prédio com selo "+": incluir uma empresa na carteira. O "+" fica num
+  // selo redondo, e não solto à direita: solto, a massa de tinta do prédio
+  // puxava o desenho 1,56 unidade para a esquerda do centro óptico.
+  { label: "Onboarding", icon: <><path d="M4 15.4V3.65A1.25 1.25 0 0 1 5.25 2.4h4.5A1.25 1.25 0 0 1 11 3.65V7.4" /><path d="M3.25 15.4h6" /><path d="M6.25 5.9h2.5M6.25 9.4h2.5" /><circle cx="14" cy="12.4" r="3.75" /><path d="M14 10.65v3.5M12.25 12.4h3.5" /></> },
   // Prancheta com visto: conferência dos cadastros.
-  { label: "Auditoria", icon: <><path d="M7.25 3.75H5.75A1.25 1.25 0 0 0 4.5 5v11.25a1.25 1.25 0 0 0 1.25 1.25h8.5a1.25 1.25 0 0 0 1.25-1.25V5a1.25 1.25 0 0 0-1.25-1.25h-1.5" /><rect x="7.25" y="2.25" width="5.5" height="3" rx="1" /><path d="m7.5 11.25 1.75 1.75 3.5-3.75" /></> },
+  { label: "Auditoria", icon: <><path d="M7 3.75H5.25A1.25 1.25 0 0 0 4 5v11.25a1.25 1.25 0 0 0 1.25 1.25h9.5a1.25 1.25 0 0 0 1.25-1.25V5a1.25 1.25 0 0 0-1.25-1.25H13" /><rect x="7" y="2.25" width="6" height="3" rx="1" /><path d="m7.25 11.25 1.75 1.75 3.75-4" /></> },
   // Barras: composição da carteira.
-  { label: "Análise", icon: <><path d="M3 17h14" /><path d="M6.25 17V10.25" /><path d="M10 17V4.5" /><path d="M13.75 17V7.75" /></> },
+  { label: "Análise", icon: <><path d="M3 16.25h14" /><path d="M6.25 16.25V9.5" /><path d="M10 16.25V3.75" /><path d="M13.75 16.25V7" /></> },
   // Calendário: obrigações e prazos.
   { label: "Calendário", icon: <><rect x="3" y="4.75" width="14" height="12.5" rx="1.75" /><path d="M3 8.75h14" /><path d="M7 2.75V5.5M13 2.75V5.5" /></> },
 ];
