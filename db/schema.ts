@@ -27,6 +27,14 @@ export const perfis = pgTable("perfis", {
   // Falso só para contas criadas por provedor externo (Google), que não informam
   // o nome do escritório. Ver manual/0012_google_oauth_cadastro.sql.
   cadastroCompleto: boolean("cadastro_completo").notNull().default(true),
+  email: text("email").notNull().default(""),
+  // 'responsavel' cria o escritório e gerencia a equipe; 'funcionario' entra
+  // por convite num escritório existente. Ver manual/0015_perfis_equipe.sql.
+  papel: text("papel").notNull().default("responsavel"),
+  // Falso quando o responsável desativa o acesso do funcionário — o perfil
+  // nunca é apagado (responsavel_id em empresas/tarefas depende dele
+  // existir), só para de logar e some dos seletores de responsável novos.
+  ativo: boolean("ativo").notNull().default(true),
   criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().default(sql`now()`),
 });
 
