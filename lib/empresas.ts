@@ -1,3 +1,4 @@
+import { LIMITES, validarCampos, validarListaTexto } from "@/lib/validacao";
 /**
  * Shape compartilhado entre GET/POST/PATCH de /api/empresas: linha bruta
  * retornada pelo PostgREST (com os embeds de sócios e responsável) e a
@@ -94,4 +95,67 @@ export async function buscarEmpresaCompletaPorId(
   }
 
   return data as EmpresaRow;
+}
+
+/**
+ * Campos de texto que as rotas de empresa aceitam. Frouxo de propósito: só
+ * descreve o que precisa ser medido, tanto no POST quanto no PATCH.
+ */
+export type EmpresaComTextos = {
+  cnpj?: string;
+  razaoSocial?: string;
+  fantasia?: string;
+  cidade?: string;
+  estado?: string;
+  endereco?: string;
+  cnaeCodigo?: string;
+  cnaeDescricao?: string;
+  porte?: string;
+  situacaoCadastral?: string;
+  observacoes?: string;
+  tags?: unknown;
+  socios?: { nome: string; papel: string }[];
+};
+
+// Nenhuma coluna de texto do schema tem limite de tamanho, e o corte de 512 KB
+// no worker não impede gravar centenas de KB por registro. Exportado porque o
+// PATCH de /api/empresas/:id valida exatamente os mesmos campos.
+export function validarCamposDaEmpresa(
+  payload: EmpresaComTextos,
+  cnpj?: string,
+  razaoSocial?: string,
+): string | null {
+  return (
+    validarCampos([
+      ["CNPJ", cnpj ?? payload.cnpj, LIMITES.cnpj],
+      ["Razão social", razaoSocial ?? payload.razaoSocial, LIMITES.razaoSocial],
+      ["Nome fantasia", payload.fantasia, LIMITES.razaoSocial],
+      ["Cidade", payload.cidade, LIMITES.cidade],
+      ["Estado", payload.estado, LIMITES.estado],
+      ["Endereço", payload.endereco, LIMITES.endereco],
+      ["Código CNAE", payload.cnaeCodigo, LIMITES.classificacao],
+      ["Descrição do CNAE", payload.cnaeDescricao, LIMITES.cnae],
+      ["Porte", payload.porte, LIMITES.classificacao],
+      ["Situação cadastral", payload.situacaoCadastral, LIMITES.classificacao],
+      ["Observações", payload.observacoes, LIMITES.observacoes],
+    ]) ??
+    validarListaTexto("Tags", payload.tags, LIMITES.tags, LIMITES.tag) ??
+    validarSocios(payload.socios)
+  );
+}
+
+function validarSocios(socios: EmpresaComTextos["socios"]): string | null {
+  if (socios === undefined || socios === null) return null;
+  if (!Array.isArray(socios)) return "Sócios deve ser uma lista.";
+  if (socios.length > LIMITES.socios) return `Sócios aceita no máximo ${LIMITES.socios} itens.`;
+
+  for (const socio of socios) {
+    const erro = validarCampos([
+      ["Nome do sócio", socio?.nome, LIMITES.razaoSocial],
+      ["Papel do sócio", socio?.papel, LIMITES.classificacao],
+    ]);
+    if (erro) return erro;
+  }
+
+  return null;
 }

@@ -1,4 +1,5 @@
 import { createSupabaseRouteHandlerClient } from "@/lib/supabase/server";
+import { LIMITES, validarCampos } from "@/lib/validacao";
 
 export async function POST(request: Request) {
   let payload: { escritorioNome?: string; nome?: string; senha?: string };
@@ -12,6 +13,14 @@ export async function POST(request: Request) {
   const nome = payload.nome?.trim() ?? "";
   if (!nome) {
     return Response.json({ error: "Informe seu nome." }, { status: 400 });
+  }
+
+  const erroTamanho = validarCampos([
+    ["Nome", nome, LIMITES.nome],
+    ["Nome do escritório", payload.escritorioNome, LIMITES.nome],
+  ]);
+  if (erroTamanho) {
+    return Response.json({ error: erroTamanho }, { status: 400 });
   }
 
   const { supabase, applySetCookies } = await createSupabaseRouteHandlerClient();

@@ -91,6 +91,67 @@ Contas criadas pelo Google não informam o nome do escritório, então nascem co
 O SMTP embutido do Supabase tem limite baixo de envios; para produção, configure um SMTP
 próprio em **Authentication → Emails → SMTP Settings**.
 
+### Segurança
+
+Controles em vigor e onde eles moram:
+
+- **Isolamento por escritório**: RLS em todas as tabelas, usando `perfis.escritorio_id` como
+  fonte de verdade (`manual/0001`). O trigger `perfis_lock_escritorio_id` impede trocar de
+  tenant, e — desde `manual/0019` — congela também `papel`, `email` e o próprio `ativo`, o
+  que permitiria a um funcionário se promover a responsável direto no PostgREST.
+- **Cookie de sessão**: `HttpOnly`, `SameSite=Lax` e `Secure` em produção
+  (`lib/supabase/server.ts`). O padrão do `@supabase/ssr` é `httpOnly: false`, que deixaria
+  o token legível por JavaScript.
+- **Rate limit** de login, cadastro, reset e reenvio de senha e convites, por IP e por
+  identidade (`lib/rate-limit.ts` + `manual/0020`). O contador fica no Postgres porque o app
+  roda em Workers, onde memória de processo não é compartilhada entre requisições.
+- **Trilha de auditoria** de login (ok/falha/bloqueado), troca de senha, convite e
+  ativação/desativação de funcionário, em `eventos_seguranca`
+  (`lib/auditoria-seguranca.ts` + `manual/0021`). A tabela não tem policy de escrita: só a
+  função `registrar_evento_seguranca` grava, então ninguém forja nem apaga o próprio rastro.
+- **Validação de tamanho** em todo campo de texto que o usuário escreve (`lib/validacao.ts`)
+  e **limite de 512 KB por requisição** no worker — nenhuma coluna do schema tem limite
+  próprio.
+- **Headers de segurança** aplicados no worker, para todas as rotas
+  (`lib/headers-seguranca.ts` + `worker/index.ts`).
+
+Ao publicar em produção, mantenha *Redirect URLs* (Authentication → URL Configuration) com
+os endereços exatos do app — é essa lista que impede que um `Host` forjado desvie o link de
+confirmação de e-mail para um domínio de terceiros.
+
+#### Manutenção periódica
+
+Agende em **Database → Cron**, uma vez por dia:
+
+```sql
+select public.limpar_rate_limit_antigo();
+select public.limpar_eventos_seguranca(180);
+```
+
+#### Como ler a trilha de auditoria
+
+Ainda não há tela para isso — consulte pelo **SQL Editor** do Supabase:
+
+```sql
+-- Tentativas de login que falharam nas últimas 24h, das mais insistentes para as menos
+select email, ip, count(*) as tentativas, max(criado_em) as ultima
+from public.eventos_seguranca
+where tipo in ('login_falha', 'login_bloqueado') and criado_em > now() - interval '24 hours'
+group by email, ip
+order by tentativas desc;
+```
+
+Um `senha_alterada` sem um `login_ok` do mesmo IP logo antes é o sinal mais claro de conta
+tomada. A policy de leitura já existe (responsável enxerga o próprio escritório), então uma
+tela futura em Configurações não precisa de mudança no banco.
+
+#### Backup
+
+O backup é o automático do Supabase (**Database → Backups**) — o app não tem rotina própria.
+Confira no seu plano qual é a retenção e se há PITR; no plano gratuito são snapshots diários
+com retenção curta e **sem** restauração para um instante específico. Antes de qualquer
+migração que apague ou reescreva dados, tire um snapshot manual pelo painel.
+
 ## Observações
 
 - O CNPJ, os cadastros e as tarefas desta versão são fictícios.

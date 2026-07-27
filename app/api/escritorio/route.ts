@@ -1,4 +1,5 @@
 import { createSupabaseRouteHandlerClient, createSupabaseServerClient } from "@/lib/supabase/server";
+import { LIMITES, validarCampos } from "@/lib/validacao";
 
 // GET /api/escritorio — nome do escritório da sessão (qualquer perfil do
 // escritório pode ler, mesmo padrão de RLS de escritorios_select_own).
@@ -55,6 +56,11 @@ export async function PATCH(request: Request) {
   const nome = payload.nome?.trim() ?? "";
   if (!nome) {
     return applySetCookies(Response.json({ error: "Informe o nome do escritório." }, { status: 400 }));
+  }
+
+  const erroTamanho = validarCampos([["Nome do escritório", nome, LIMITES.nome]]);
+  if (erroTamanho) {
+    return applySetCookies(Response.json({ error: erroTamanho }, { status: 400 }));
   }
 
   const { data: perfil } = await supabase.from("perfis").select("escritorio_id, papel").eq("id", user.id).single();

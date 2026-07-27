@@ -1,4 +1,6 @@
 import { createSupabaseRouteHandlerClient } from "@/lib/supabase/server";
+import { LIMITES_AUTH, consumirRateLimit, ipDoRequest, respostaLimiteExcedido } from "@/lib/rate-limit";
+import { LIMITES, validarCampos } from "@/lib/validacao";
 
 export async function POST(request: Request) {
   let payload: {
@@ -34,7 +36,26 @@ export async function POST(request: Request) {
     );
   }
 
+  const erroTamanho = validarCampos([
+    ["Nome do escritório", escritorioNome, LIMITES.nome],
+    ["Nome", nome, LIMITES.nome],
+    ["E-mail", email, LIMITES.email],
+  ]);
+  if (erroTamanho) {
+    return Response.json({ error: erroTamanho }, { status: 400 });
+  }
+
   const { supabase, applySetCookies } = await createSupabaseRouteHandlerClient();
+
+  // Cada cadastro dispara um e-mail de confirmação e cria um escritório novo
+  // no banco (trigger on_auth_user_created). Sem limite por IP, um script
+  // enche a base de escritórios fantasma e usa o app como canhão de e-mails
+  // contra endereços de terceiros.
+  const [limiteSignup, janelaSignup] = LIMITES_AUTH.signupIp;
+  if (await consumirRateLimit(supabase, "signup-ip", ipDoRequest(request), limiteSignup, janelaSignup)) {
+    return applySetCookies(respostaLimiteExcedido(janelaSignup));
+  }
+
   const { error } = await supabase.auth.signUp({
     email,
     password: senha,

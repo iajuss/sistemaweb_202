@@ -1,5 +1,5 @@
 import { createSupabaseRouteHandlerClient } from "@/lib/supabase/server";
-import { buscarEmpresaCompletaPorId, paraShapeFrontend, substituirResponsaveisEmpresa } from "@/lib/empresas";
+import { buscarEmpresaCompletaPorId, paraShapeFrontend, substituirResponsaveisEmpresa, validarCamposDaEmpresa } from "@/lib/empresas";
 
 type EmpresaPatchPayload = {
   cnpj?: string;
@@ -56,6 +56,13 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     payload = (await request.json()) as EmpresaPatchPayload;
   } catch {
     return applySetCookies(Response.json({ error: "Corpo da requisição inválido." }, { status: 400 }));
+  }
+
+  // Mesmos limites de tamanho do POST — validador compartilhado para as duas
+  // rotas não divergirem com o tempo.
+  const erroTamanho = validarCamposDaEmpresa(payload);
+  if (erroTamanho) {
+    return applySetCookies(Response.json({ error: erroTamanho }, { status: 400 }));
   }
 
   const updates: Record<string, unknown> = {};

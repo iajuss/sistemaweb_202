@@ -11,6 +11,7 @@ import {
   type ModeloRecorrenciaRow,
   type Periodicidade,
 } from "@/lib/modelos-recorrencia";
+import { LIMITES, validarCampos } from "@/lib/validacao";
 
 const PERIODICIDADES_VALIDAS: Periodicidade[] = ["diario", "semanal", "mensal", "anual"];
 
@@ -99,6 +100,11 @@ export async function POST(request: Request) {
     return applySetCookies(
       Response.json({ error: "Título e tipo são obrigatórios." }, { status: 400 }),
     );
+  }
+
+  const erroTamanho = validarCampos([["Título", titulo, LIMITES.titulo], ["Tipo", tipo, LIMITES.tipo]]);
+  if (erroTamanho) {
+    return applySetCookies(Response.json({ error: erroTamanho }, { status: 400 }));
   }
 
   if (!periodicidade || !PERIODICIDADES_VALIDAS.includes(periodicidade as Periodicidade)) {

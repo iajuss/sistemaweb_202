@@ -1,4 +1,6 @@
 import { createSupabaseRouteHandlerClient } from "@/lib/supabase/server";
+import { ipDoRequest } from "@/lib/rate-limit";
+import { registrarEvento } from "@/lib/auditoria-seguranca";
 
 export async function POST(request: Request) {
   let payload: { senha?: string };
@@ -20,6 +22,11 @@ export async function POST(request: Request) {
   if (error) {
     return applySetCookies(Response.json({ error: "Não foi possível atualizar a senha." }, { status: 400 }));
   }
+
+  // Troca de senha é o passo que consolida a tomada de uma conta: se ela
+  // aparecer no log sem um login legítimo antes, é o sinal mais claro de
+  // sequestro que existe.
+  await registrarEvento(supabase, "senha_alterada", { ip: ipDoRequest(request) });
 
   return applySetCookies(Response.json({ ok: true }));
 }

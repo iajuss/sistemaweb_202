@@ -1,6 +1,8 @@
 import { createSupabaseRouteHandlerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { validarEmailConvite } from "@/lib/equipe";
+import { LIMITES_AUTH, consumirRateLimit, ipDoRequest, respostaLimiteExcedido } from "@/lib/rate-limit";
+import { registrarEvento } from "@/lib/auditoria-seguranca";
 
 export async function POST(request: Request) {
   const { supabase, applySetCookies } = await createSupabaseRouteHandlerClient();
@@ -35,6 +37,18 @@ export async function POST(request: Request) {
     return applySetCookies(Response.json({ error: "Só o responsável pelo escritório pode convidar." }, { status: 403 }));
   }
 
+  // Esta rota dispara e-mail e responde de forma diferente quando o endereço
+  // já existe na plataforma (mensagem lá embaixo) — ou seja, serve tanto para
+  // spam quanto para enumerar contas de OUTROS escritórios, um e-mail por
+  // requisição. A mensagem específica é UX legítima (sem ela o responsável
+  // não entende por que o convite falhou), então o controle é o limite de
+  // volume por usuário, que torna a varredura inviável sem atrapalhar quem
+  // está montando a equipe de verdade.
+  const [limiteConvite, janelaConvite] = LIMITES_AUTH.conviteUsuario;
+  if (await consumirRateLimit(supabase, "convite-usuario", user.id, limiteConvite, janelaConvite)) {
+    return applySetCookies(respostaLimiteExcedido(janelaConvite));
+  }
+
   const { data: jaMembro } = await supabase
     .from("perfis")
     .select("id")
@@ -66,6 +80,8 @@ export async function POST(request: Request) {
       ),
     );
   }
+
+  await registrarEvento(supabase, "convite_enviado", { email, ip: ipDoRequest(request) });
 
   return applySetCookies(Response.json({ ok: true }, { status: 201 }));
 }

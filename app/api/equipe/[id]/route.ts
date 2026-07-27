@@ -1,5 +1,7 @@
 import { createSupabaseRouteHandlerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { ipDoRequest } from "@/lib/rate-limit";
+import { registrarEvento } from "@/lib/auditoria-seguranca";
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -32,7 +34,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const { data: alvo } = await supabase
     .from("perfis")
-    .select("escritorio_id, papel")
+    .select("escritorio_id, papel, email")
     .eq("id", id)
     .single();
 
@@ -57,6 +59,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     await supabase.from("perfis").update({ ativo: !ativo }).eq("id", id);
     return applySetCookies(Response.json({ error: "Não foi possível atualizar o acesso de login." }, { status: 500 }));
   }
+
+  // Registrado só depois do ban aplicado com sucesso — antes disso a operação
+  // ainda podia ser revertida, e o log estaria contando algo que não houve.
+  await registrarEvento(supabase, ativo ? "funcionario_ativado" : "funcionario_desativado", {
+    email: alvo.email,
+    ip: ipDoRequest(request),
+  });
 
   return applySetCookies(Response.json({ ok: true }));
 }

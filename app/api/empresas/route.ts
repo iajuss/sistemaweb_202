@@ -1,5 +1,6 @@
 import { createSupabaseServerClient, createSupabaseRouteHandlerClient } from "@/lib/supabase/server";
-import { EMPRESA_SELECT, buscarEmpresaCompletaPorId, paraShapeFrontend, substituirResponsaveisEmpresa, type EmpresaRow } from "@/lib/empresas";
+import { EMPRESA_SELECT, buscarEmpresaCompletaPorId, paraShapeFrontend, substituirResponsaveisEmpresa, validarCamposDaEmpresa, type EmpresaRow } from "@/lib/empresas";
+import { termoBuscaSeguro } from "@/lib/validacao";
 
 // GET /api/empresas — lista as empresas do escritório da sessão (RLS filtra
 // por escritorio_id). Suporta ?busca= para filtrar por razão social,
@@ -20,7 +21,9 @@ export async function GET(request: Request) {
   let query = supabase.from("empresas").select(EMPRESA_SELECT).order("razao_social", { ascending: true });
 
   if (busca) {
-    const termo = `%${busca.replace(/[%,()]/g, "")}%`;
+    // O termo entra concatenado no filtro `or(...)` do PostgREST, onde
+    // vírgula e parêntese são separadores da sintaxe — ver termoBuscaSeguro.
+    const termo = `%${termoBuscaSeguro(busca)}%`;
     query = query.or(`razao_social.ilike.${termo},fantasia.ilike.${termo},cnpj.ilike.${termo}`);
   }
 
@@ -74,6 +77,11 @@ export async function POST(request: Request) {
 
   if (!cnpj || !razaoSocial) {
     return applySetCookies(Response.json({ error: "CNPJ e razão social são obrigatórios." }, { status: 400 }));
+  }
+
+  const erroTamanho = validarCamposDaEmpresa(payload, cnpj, razaoSocial);
+  if (erroTamanho) {
+    return applySetCookies(Response.json({ error: erroTamanho }, { status: 400 }));
   }
 
   const { data: perfil, error: perfilError } = await supabase

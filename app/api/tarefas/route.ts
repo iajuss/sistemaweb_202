@@ -11,6 +11,7 @@ import {
   substituirResponsaveisTarefa,
   type TarefaRow,
 } from "@/lib/tarefas";
+import { LIMITES, validarCampos } from "@/lib/validacao";
 
 const MES_REGEX = /^\d{4}-(0[1-9]|1[0-2])$/;
 const VENCIMENTO_REGEX = /^\d{4}-\d{2}-\d{2}$/;
@@ -135,6 +136,11 @@ export async function POST(request: Request) {
 
   if (!VENCIMENTO_REGEX.test(vencimento)) {
     return applySetCookies(Response.json({ error: 'Vencimento deve estar no formato "YYYY-MM-DD".' }, { status: 400 }));
+  }
+
+  const erroTamanho = validarCampos([["Título", titulo, LIMITES.titulo], ["Tipo", tipo, LIMITES.tipo]]);
+  if (erroTamanho) {
+    return applySetCookies(Response.json({ error: erroTamanho }, { status: 400 }));
   }
 
   const { data: perfil, error: perfilError } = await supabase

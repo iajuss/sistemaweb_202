@@ -9,6 +9,7 @@ import {
   validarPeriodoRepeticao,
   type Periodicidade,
 } from "@/lib/modelos-recorrencia";
+import { LIMITES, validarCampos } from "@/lib/validacao";
 
 const PERIODICIDADES_VALIDAS: Periodicidade[] = ["diario", "semanal", "mensal", "anual"];
 
@@ -72,6 +73,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     payload = (await request.json()) as ModeloRecorrenciaPatchPayload;
   } catch {
     return applySetCookies(Response.json({ error: "Corpo da requisição inválido." }, { status: 400 }));
+  }
+
+  const erroTamanho = validarCampos([
+    ["Título", payload.titulo, LIMITES.titulo],
+    ["Tipo", payload.tipo, LIMITES.tipo],
+  ]);
+  if (erroTamanho) {
+    return applySetCookies(Response.json({ error: erroTamanho }, { status: 400 }));
   }
 
   if ("diaReferencia" in payload) {
