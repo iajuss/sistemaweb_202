@@ -1,3 +1,6 @@
+export type { MembroEquipe, Papel } from "@/lib/equipe";
+import type { MembroEquipe } from "@/lib/equipe";
+
 /** Situações oficiais conhecidas e valores futuros eventualmente devolvidos pela Receita. */
 export type StatusEmpresa = "Ativa" | "Suspensa" | "Baixada" | "Inapta" | "Nula" | (string & {});
 export type Porte = "MEI" | "Microempresa" | "Pequena empresa" | "Médio porte";
@@ -243,6 +246,15 @@ export async function listarPerfis(): Promise<{ id: string; nome: string }[]> {
   const response = await fetch("/api/perfis");
   if (!response.ok) {
     throw new Error(await extrairMensagemDeErro(response, "Não foi possível carregar os perfis."));
+  }
+  return response.json();
+}
+
+/** GET /api/equipe — lista a equipe do escritório (só o responsável enxerga). */
+export async function listarEquipe(): Promise<MembroEquipe[]> {
+  const response = await fetch("/api/equipe");
+  if (!response.ok) {
+    throw new Error(await extrairMensagemDeErro(response, "Não foi possível carregar a equipe."));
   }
   return response.json();
 }
