@@ -9,28 +9,6 @@ import type { createServerClient } from "@supabase/ssr";
 type SupabaseClient = ReturnType<typeof createServerClient>;
 
 export type Periodicidade = "diario" | "semanal" | "mensal" | "anual";
-export type UnidadeRepeticao = "dias" | "meses" | "anos";
-
-export const UNIDADES_REPETICAO_VALIDAS: UnidadeRepeticao[] = ["dias", "meses", "anos"];
-
-// Ordem de grandeza das periodicidades e das unidades, menor pra maior —
-// usada para restringir as unidades de "repetir por" às de valor igual ou
-// maior que a própria periodicidade (não faz sentido um modelo "anual"
-// repetir só "por 3 dias"). Não existe unidade "semanas": para "semanal" a
-// menor unidade cabível é "meses" (dias é menor que uma semana).
-const ORDEM_UNIDADE: Record<UnidadeRepeticao, number> = { dias: 1, meses: 2, anos: 3 };
-const UNIDADE_MINIMA_POR_PERIODICIDADE: Record<Periodicidade, UnidadeRepeticao> = {
-  diario: "dias",
-  semanal: "meses",
-  mensal: "meses",
-  anual: "anos",
-};
-
-/** Unidades de "repetir por" válidas para a periodicidade, em ordem crescente (a menor primeiro). */
-export function unidadesValidasParaPeriodicidade(periodicidade: Periodicidade): UnidadeRepeticao[] {
-  const minimo = ORDEM_UNIDADE[UNIDADE_MINIMA_POR_PERIODICIDADE[periodicidade]];
-  return UNIDADES_REPETICAO_VALIDAS.filter((u) => ORDEM_UNIDADE[u] >= minimo);
-}
 
 export type ModeloRecorrenciaRow = {
   id: string;
@@ -43,8 +21,8 @@ export type ModeloRecorrenciaRow = {
   dias_semana: number[] | null;
   mes_referencia: number | null;
   ativo: boolean;
-  repeticoes_quantidade: number | null;
-  repeticoes_unidade: string | null;
+  repete_inicio: string | null;
+  repete_fim: string | null;
   criado_em: string;
   empresa: { fantasia: string } | null;
   responsaveis: { perfil: { id: string; nome: string } }[];
@@ -81,33 +59,29 @@ export function validarMesReferencia(mes: unknown): string | null {
   return null;
 }
 
-/**
- * Valida a combinação de `repeticoesQuantidade`/`repeticoesUnidade`: os dois
- * precisam vir juntos (ambos `null` = repete sem fim) e, quando presentes,
- * `quantidade` deve ser um inteiro positivo e `unidade` uma das válidas
- * para a `periodicidade` do modelo (ver `unidadesValidasParaPeriodicidade`).
- * Retorna a mensagem de erro, ou `null` se a combinação for válida.
- */
-export function validarRepeticoes(
-  periodicidade: Periodicidade,
-  quantidade: number | null | undefined,
-  unidade: string | null | undefined,
-): string | null {
-  const q = quantidade ?? null;
-  const u = unidade ?? null;
+const DATA_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
-  if ((q === null) !== (u === null)) {
-    return "Informe quantidade e unidade da repetição juntas, ou deixe as duas em branco para repetir sem data final.";
+/**
+ * Valida a combinação de `repeteInicio`/`repeteFim`: os dois precisam vir
+ * juntos (ambos `null` = repete sem fim) e, quando presentes, ambos devem
+ * ser datas `"YYYY-MM-DD"` válidas com `fim >= inicio`. Retorna a mensagem
+ * de erro, ou `null` se a combinação for válida.
+ */
+export function validarPeriodoRepeticao(inicio: unknown, fim: unknown): string | null {
+  const i = inicio ?? null;
+  const f = fim ?? null;
+
+  if ((i === null) !== (f === null)) {
+    return "Informe início e fim do período juntos, ou deixe os dois em branco para repetir sem data final.";
   }
-  if (q === null) {
+  if (i === null) {
     return null;
   }
-  if (typeof q !== "number" || !Number.isInteger(q) || q < 1) {
-    return "A quantidade de repetição deve ser um número inteiro maior que zero.";
+  if (typeof i !== "string" || !DATA_REGEX.test(i) || typeof f !== "string" || !DATA_REGEX.test(f)) {
+    return 'Datas do período devem estar no formato "YYYY-MM-DD".';
   }
-  const validas = unidadesValidasParaPeriodicidade(periodicidade);
-  if (!validas.includes(u as UnidadeRepeticao)) {
-    return `Para periodicidade "${periodicidade}", a unidade de repetição deve ser ${validas.join(" ou ")}.`;
+  if (f < i) {
+    return "A data de fim deve ser igual ou posterior à data de início.";
   }
   return null;
 }
@@ -127,8 +101,8 @@ export function paraShapeFrontend(row: ModeloRecorrenciaRow) {
     responsavelIds: responsaveis.map((p) => p.id),
     responsaveis: responsaveis.map((p) => p.nome),
     ativo: row.ativo,
-    repeticoesQuantidade: row.repeticoes_quantidade,
-    repeticoesUnidade: row.repeticoes_unidade,
+    repeteInicio: row.repete_inicio,
+    repeteFim: row.repete_fim,
     criadoEm: row.criado_em,
   };
 }
