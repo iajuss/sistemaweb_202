@@ -286,3 +286,59 @@ html[data-theme="dark"] .brand-workspace{color:#aebeb5}html[data-theme="dark"] .
    ocupam uma faixa inteira, evitando uma grande área vazia no painel. */
 .settings-grid .escritorio-card{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:16px;padding:24px 26px}.escritorio-card>.settings-label,.escritorio-card>.escritorio-rename-form,.escritorio-card>.escritorio-display-options,.escritorio-card>.settings-message{grid-column:1/-1}.escritorio-card>.settings-label{margin-bottom:-7px!important}.escritorio-summary{display:grid;gap:5px;min-width:0}.escritorio-summary h3{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.escritorio-card>.secondary{margin:0!important;align-self:center}.escritorio-card>.escritorio-display-options{align-items:center;gap:16px;margin:2px 0 0;padding-top:15px;border-top:1px solid var(--border)}
 @media(max-width:620px){.settings-grid .escritorio-card{grid-template-columns:1fr;gap:12px;padding:20px}.escritorio-card>.secondary{justify-self:start}.escritorio-card>.escritorio-display-options{align-items:flex-start;gap:8px}}
+
+/* Grade de configurações: em telas amplas, os três painéis de cada faixa
+   ocupam toda a largura. Nos tamanhos intermediários, o último cartão ganha
+   uma faixa própria para não deixar uma coluna vazia. */
+@media(min-width:1181px){.settings-grid{grid-template-columns:repeat(3,minmax(0,1fr));max-width:1440px;align-items:stretch}.settings-grid>.panel{min-width:0}}
+@media(min-width:761px) and (max-width:1180px){.settings-grid{grid-template-columns:repeat(2,minmax(0,1fr));max-width:1050px}.settings-grid>.panel:last-child{grid-column:1/-1}}
+
+/* Os cartões iniciais seguem a mesma cadência visual: dados no centro,
+   preferências no rodapé e ações de logo na mesma linha. */
+@media(min-width:761px){
+  .settings-grid>.account-card{min-height:350px;align-self:stretch}
+  .settings-grid>.escritorio-card{min-height:350px;grid-template-rows:auto minmax(0,1fr) auto}
+  .escritorio-card>.escritorio-rename-form{align-self:center}
+  .settings-grid>.logo-panel{min-height:350px;grid-template-columns:auto 1fr;grid-template-rows:auto minmax(0,1fr) auto;align-content:stretch;gap:12px}
+  .logo-panel>.settings-panel-head,.logo-panel>.logo-preview{grid-column:1/-1}
+  .logo-panel>.logo-preview{align-self:center}
+  .logo-panel>.logo-upload,.logo-panel>.destructive{align-self:end}
+}
+
+.logo-panel .secondary.destructive{border-color:#d56a64;background:#fff3f2;color:#b63b35}
+.logo-panel .secondary.destructive:hover{border-color:#b63b35;background:#b63b35;color:#fff}
+html[data-theme="dark"] .logo-panel .secondary.destructive{border-color:#a74d49;background:#452a2a;color:#ffb8b2}
+html[data-theme="dark"] .logo-panel .secondary.destructive:hover{background:#a74d49;border-color:#c9635d;color:#fff}
+
+/* Ações destrutivas mantêm a mesma semântica em toda a interface. */
+.secondary.destructive{border-color:#d56a64;background:#fff3f2;color:#b63b35}
+.secondary.destructive:hover{border-color:#b63b35;background:#b63b35;color:#fff}
+html[data-theme="dark"] .secondary.destructive{border-color:#a74d49;background:#452a2a;color:#ffb8b2}
+html[data-theme="dark"] .secondary.destructive:hover{background:#a74d49;border-color:#c9635d;color:#fff}
+
+/* Nestes dois formulários, o único botão secundário é a ação de cancelamento. */
+.account-name-form button[type="button"],.escritorio-rename-form button[type="button"]{border-color:#d56a64;background:#fff3f2;color:#b63b35}
+.account-name-form button[type="button"]:hover,.escritorio-rename-form button[type="button"]:hover{border-color:#b63b35;background:#b63b35;color:#fff}
+html[data-theme="dark"] .account-name-form button[type="button"],html[data-theme="dark"] .escritorio-rename-form button[type="button"]{border-color:#a74d49;background:#452a2a;color:#ffb8b2}
+html[data-theme="dark"] .account-name-form button[type="button"]:hover,html[data-theme="dark"] .escritorio-rename-form button[type="button"]:hover{background:#a74d49;border-color:#c9635d;color:#fff}
+
+/* Aproveita a altura dos cartões sem sacrificar a área de edição. */
+@media(min-width:621px){
+  .settings-grid>.account-card{align-items:stretch;padding:34px 28px}
+  .account-card>.account-avatar{align-self:center}
+  .account-card>div:last-child{display:grid;grid-template-rows:auto auto auto 1fr auto;align-self:stretch;padding:10px 0;min-height:0}
+  .account-card>div:last-child>.secondary{align-self:end;margin:0}
+  .settings-grid .escritorio-card{padding:30px 32px}
+  .escritorio-card .escritorio-rename-form{grid-template-columns:1fr 1fr;grid-template-rows:66px 54px;gap:10px;max-width:none}
+  .escritorio-card .escritorio-rename-form input{grid-column:1/-1;width:100%}
+  .escritorio-card .escritorio-rename-form button{width:100%;min-width:0}
+}
+
+/* A conta é uma única identidade visual; manter avatar e dados agrupados é
+   mais legível do que espalhá-los artificialmente pelo cartão. */
+@media(min-width:621px){
+  .settings-grid>.account-card{align-items:center;padding:28px}
+  .account-card>.account-avatar{align-self:auto}
+  .account-card>div:last-child{display:block;align-self:auto;padding:0;min-height:auto}
+  .account-card>div:last-child>.secondary{align-self:auto;margin-top:12px;width:auto}
+}
