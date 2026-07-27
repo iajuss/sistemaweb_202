@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, ReactNode, useEffect, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import {
   atualizarModeloRecorrencia, atualizarTarefa, criarModeloRecorrencia, criarTarefa, excluirModeloRecorrencia,
   listarModelosRecorrencia, listarTarefas,
@@ -200,7 +200,8 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
   const [monthLoading, setMonthLoading] = useState(false);
 
   // Interações com uma tarefa individual
-  const [detalhe, setDetalhe] = useState<{ tarefa: Tarefa; top: number; left: number } | null>(null);
+  const [detalhe, setDetalhe] = useState<{ tarefa: Tarefa; top: number; left: number; anchorTop: number; anchorBottom: number } | null>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const [menuTaskId, setMenuTaskId] = useState<string | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number } | null>(null);
   const [editingTask, setEditingTask] = useState<Tarefa | null>(null);
@@ -243,6 +244,19 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
       .finally(() => { if (!cancel) setMonthLoading(false); });
     return () => { cancel = true; };
   }, [mesISO, isMesAtual]);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const popover = popoverRef.current;
+      if (!detalhe || !popover) return;
+      const margem = 12;
+      const altura = popover.getBoundingClientRect().height;
+      const abrirAcima = detalhe.anchorBottom + 6 + altura > window.innerHeight - margem;
+      const top = abrirAcima ? Math.max(margem, detalhe.anchorTop - 6 - altura) : detalhe.anchorBottom + 6;
+      if (top !== detalhe.top) setDetalhe((atual) => atual ? { ...atual, top } : null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [detalhe]);
 
   const people = ["Todos", ...Array.from(new Set(perfis.map((p) => p.nome)))];
   const shown = monthTasks.filter((t) => responsible === "Todos" || t.responsavel === responsible);
@@ -348,7 +362,7 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
   const abrirDetalhe = (t: Tarefa, target: HTMLElement) => {
     const rect = target.getBoundingClientRect();
     const left = Math.min(rect.left, window.innerWidth - 300);
-    setDetalhe({ tarefa: t, top: rect.bottom + 6, left: Math.max(12, left) });
+    setDetalhe({ tarefa: t, top: rect.bottom + 6, left: Math.max(12, left), anchorTop: rect.top, anchorBottom: rect.bottom });
   };
 
   const toggleTaskMenu = (id: string, target: HTMLElement) => {
@@ -369,6 +383,8 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
   };
   const irAno = (delta: number) => { setDetalhe(null); closeTaskMenu(); setViewAno((a) => a + delta); };
   const irHoje = () => { setDetalhe(null); closeTaskMenu(); setViewMes(mesHojeIndex); setViewAno(anoHoje); };
+  const escolherPeriodo = (mes: number, ano: number) => { setDetalhe(null); closeTaskMenu(); setViewMes(mes); setViewAno(ano); };
+  const anosDisponiveis = Array.from({ length: 11 }, (_, index) => viewAno - 5 + index);
 
   const refetchModelos = async (falhaParcial: string) => {
     try {
@@ -493,7 +509,7 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
         <button type="button" className="nav-arrow" aria-label="Ano anterior" title="Ano anterior" onClick={() => irAno(-1)}>«</button>
         <button type="button" className="nav-arrow" aria-label="Mês anterior" title="Mês anterior" onClick={() => irMes(-1)}>‹</button>
       </div>
-      <div className="calendar-nav-label"><strong>{MESES_PT[viewMes]}</strong><span>{viewAno}</span></div>
+      <div className="calendar-period-picker"><select aria-label="Mês exibido" value={viewMes} onChange={(event) => escolherPeriodo(Number(event.target.value), viewAno)}>{MESES_PT.map((mes, index) => <option key={mes} value={index}>{mes}</option>)}</select><select aria-label="Ano exibido" value={viewAno} onChange={(event) => escolherPeriodo(viewMes, Number(event.target.value))}>{anosDisponiveis.map((ano) => <option key={ano} value={ano}>{ano}</option>)}</select></div>
       <div className="calendar-nav-group">
         <button type="button" className="nav-arrow" aria-label="Próximo mês" title="Próximo mês" onClick={() => irMes(1)}>›</button>
         <button type="button" className="nav-arrow" aria-label="Próximo ano" title="Próximo ano" onClick={() => irAno(1)}>»</button>
@@ -510,7 +526,7 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
 
     {detalhe && <>
       <button type="button" className="menu-backdrop" aria-label="Fechar detalhes" onClick={() => setDetalhe(null)} />
-      <div className="task-popover" role="dialog" aria-label={`Detalhes — ${detalhe.tarefa.titulo}`} style={{ top: detalhe.top, left: detalhe.left }}>
+      <div ref={popoverRef} className="task-popover" role="dialog" aria-label={`Detalhes — ${detalhe.tarefa.titulo}`} style={{ top: detalhe.top, left: detalhe.left }}>
         <div className="task-popover-head"><strong>{detalhe.tarefa.titulo}</strong><button type="button" className="close" onClick={() => setDetalhe(null)} aria-label="Fechar">×</button></div>
         <dl className="task-popover-body">
           <div><dt>Natureza</dt><dd>{naturezaTarefa(detalhe.tarefa)}</dd></div>

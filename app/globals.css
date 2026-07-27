@@ -50,6 +50,8 @@ html[data-theme="dark"] body{background:var(--background);color:var(--text)}html
 
 /* O quadro fixo mantém o "A" visualmente centrado em todas as opções. */
 .font-choices i{width:18px!important;height:18px!important;line-height:1!important}
+.cnae-ranking{height:100%;display:grid;gap:4px;align-content:start}.cnae-ranking-item{display:grid;grid-template-columns:27px minmax(0,1fr) auto;align-items:center;gap:9px;width:100%;min-height:34px;padding:5px 6px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--text);text-align:left;transition:.16s background,.16s border-color}.cnae-ranking-item:hover{background:#eef4f4;border-color:#d7e5e6}.cnae-ranking-position{font-size:10px;color:var(--muted);font-weight:800;letter-spacing:.04em}.cnae-ranking-content{display:grid;gap:5px;min-width:0}.cnae-ranking-content>strong{font-size:11px;font-weight:650;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cnae-ranking-track{display:block;height:4px;border-radius:999px;background:#e3edef;overflow:hidden}.cnae-ranking-track i{display:block;height:100%;border-radius:inherit;background:var(--primary)}.cnae-ranking-value{display:grid;justify-items:end;gap:1px;min-width:46px}.cnae-ranking-value strong{font-size:12px}.cnae-ranking-value small{font-size:9px;color:var(--muted)}html[data-theme="dark"] .cnae-ranking-item:hover{background:#1c333c;border-color:#36525b}html[data-theme="dark"] .cnae-ranking-track{background:#25434e}
+.cnae-ranking-scroll,.bar-chart-scroll{height:100%;overflow-y:auto;overflow-x:hidden;padding-right:4px;scrollbar-gutter:stable}.cnae-ranking-scroll .cnae-ranking{height:auto}.bar-chart-scroll>div{min-height:190px}
 .palette-colorblind{background:linear-gradient(90deg,#0072b2 0 25%,#e69f00 25% 50%,#009e73 50% 75%,#cc79a7 75%)!important}
 
 /* Modo daltonismo: paleta Okabe–Ito + codificação redundante (cor, texto e símbolo). */
@@ -91,6 +93,8 @@ html[data-theme="dark"][data-vision="colorblind"] .calendar-task.late{background
 .calendar-nav-label{display:flex;flex-direction:column;align-items:center;line-height:1.1}
 .calendar-nav-label strong{font-size:15px;color:var(--text);text-transform:capitalize}
 .calendar-nav-label span{font-size:12px;color:var(--muted)}
+.calendar-period-picker{display:flex;align-items:center;gap:7px}.calendar-period-picker select{height:32px;padding:5px 28px 5px 9px;font-size:12px;font-weight:700}.calendar-period-picker select:first-child{min-width:118px}.calendar-period-picker select:last-child{min-width:72px}
+@media(max-width:760px){.calendar-nav{flex-wrap:wrap}.calendar-period-picker{order:3;width:100%;justify-content:center}.calendar-period-picker select:first-child{flex:1;max-width:190px}}
 .nav-arrow{border:1px solid var(--border);background:#fff;color:var(--primary);width:32px;height:32px;border-radius:8px;font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .nav-arrow:hover{background:#f3f6f6}
 .nav-today{border:1px solid var(--border);background:#fff;color:var(--primary);height:32px;padding:0 12px;border-radius:8px;font-size:12px;font-weight:bold;cursor:pointer;margin-left:4px}

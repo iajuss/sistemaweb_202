@@ -30,12 +30,14 @@ function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: 
   return <div className="chart-tooltip">{label ?? name}<strong>{value}</strong></div>;
 }
 
-export function BarVisual({ data, onSelect }: { data: { name: string; value: number }[]; onSelect?: (name: string) => void }) {
+export function BarVisual({ data, onSelect, scrollable = false }: { data: { name: string; value: number }[]; onSelect?: (name: string) => void; scrollable?: boolean }) {
   const labelWidth = Math.max(36, ...data.map(({ name }) => {
     const largestLine = Math.max(...axisLabelLines(name).map((line) => line.length * 6 + 16));
     return Math.min(92, largestLine);
   }));
-  return <ResponsiveContainer width="100%" height="100%"><BarChart data={data} layout="vertical" margin={{ left: 6, right: 12 }}><XAxis type="number" hide /><YAxis type="category" dataKey="name" width={labelWidth} tick={<BarAxisTick onSelect={onSelect} />} axisLine={false} tickLine={false} /><Tooltip cursor={false} content={<ChartTooltip />} allowEscapeViewBox={{ x: false, y: false }} /><Bar dataKey="value" fill="#2d6478" activeBar={onSelect ? { fill: "#21506a" } : undefined} radius={[0, 5, 5, 0]} barSize={14} onClick={onSelect ? (entry) => { const nome = entry.payload?.name; if (nome) onSelect(nome); } : undefined} style={onSelect ? { cursor: "pointer" } : undefined} /></BarChart></ResponsiveContainer>;
+  const chartHeight = Math.max(190, data.length * 30);
+  const chart = <ResponsiveContainer width="100%" height={scrollable ? chartHeight : "100%"}><BarChart data={data} layout="vertical" margin={{ left: 6, right: 12 }}><XAxis type="number" hide /><YAxis type="category" dataKey="name" width={labelWidth} tick={<BarAxisTick onSelect={onSelect} />} axisLine={false} tickLine={false} /><Tooltip cursor={false} content={<ChartTooltip />} allowEscapeViewBox={{ x: false, y: false }} /><Bar dataKey="value" fill="#2d6478" activeBar={onSelect ? { fill: "#21506a" } : undefined} radius={[0, 5, 5, 0]} barSize={14} onClick={onSelect ? (entry) => { const nome = entry.payload?.name; if (nome) onSelect(nome); } : undefined} style={onSelect ? { cursor: "pointer" } : undefined} /></BarChart></ResponsiveContainer>;
+  return scrollable ? <div className="bar-chart-scroll"><div style={{ height: chartHeight }}>{chart}</div></div> : chart;
 }
 
 export function PieVisual({ data, legend = true, onSelect }: { data: { name: string; value: number }[]; legend?: boolean; onSelect?: (name: string) => void }) {

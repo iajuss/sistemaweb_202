@@ -1,4 +1,5 @@
-export type StatusEmpresa = "Ativa" | "Suspensa" | "Baixada";
+/** Situações oficiais conhecidas e valores futuros eventualmente devolvidos pela Receita. */
+export type StatusEmpresa = "Ativa" | "Suspensa" | "Baixada" | "Inapta" | "Nula" | (string & {});
 export type Porte = "MEI" | "Microempresa" | "Pequena empresa" | "Médio porte";
 
 export type Empresa = {
