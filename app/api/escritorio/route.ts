@@ -19,11 +19,19 @@ export async function GET() {
     return Response.json({ error: "Perfil não encontrado." }, { status: 404 });
   }
 
-  const { data: escritorio, error } = await supabase
+  let { data: escritorio, error } = await supabase
     .from("escritorios")
-    .select("nome, logo_path")
+    .select("nome, logo_path, exibir_nome_na_lateral, exibir_nome_no_header")
     .eq("id", perfil.escritorio_id)
     .single();
+
+  // Mantém o restante da aplicação disponível até a migração 0024 ser
+  // aplicada em instalações já existentes.
+  if (error?.code === "42703") {
+    const fallback = await supabase.from("escritorios").select("nome, logo_path").eq("id", perfil.escritorio_id).single();
+    escritorio = fallback.data as typeof escritorio;
+    error = fallback.error;
+  }
 
   if (error || !escritorio) {
     return Response.json({ error: "Não foi possível carregar o escritório." }, { status: 500 });
@@ -32,7 +40,9 @@ export async function GET() {
   const logoUrl = escritorio.logo_path
     ? supabase.storage.from("logos-clientes").getPublicUrl(escritorio.logo_path).data.publicUrl
     : null;
-  return Response.json({ nome: escritorio.nome, logoUrl });
+  const exibicao = escritorio as typeof escritorio & { exibir_nome_na_lateral?: boolean; exibir_nome_no_header?: boolean };
+  const preferenciasDisponiveis = "exibir_nome_na_lateral" in exibicao && "exibir_nome_no_header" in exibicao;
+  return Response.json({ nome: escritorio.nome, logoUrl, exibirNomeNaLateral: exibicao.exibir_nome_na_lateral ?? true, exibirNomeNoHeader: exibicao.exibir_nome_no_header ?? false, preferenciasDisponiveis });
 }
 
 // PATCH /api/escritorio — renomeia o escritório. Só o responsável pode
@@ -49,9 +59,9 @@ export async function PATCH(request: Request) {
     return applySetCookies(Response.json({ error: "Não autenticado." }, { status: 401 }));
   }
 
-  let payload: { nome?: string };
+  let payload: { nome?: string; exibirNomeNaLateral?: boolean; exibirNomeNoHeader?: boolean };
   try {
-    payload = (await request.json()) as { nome?: string };
+    payload = (await request.json()) as { nome?: string; exibirNomeNaLateral?: boolean; exibirNomeNoHeader?: boolean };
   } catch {
     return applySetCookies(Response.json({ error: "Corpo da requisição inválido." }, { status: 400 }));
   }
@@ -59,6 +69,11 @@ export async function PATCH(request: Request) {
   const nome = payload.nome?.trim() ?? "";
   if (!nome) {
     return applySetCookies(Response.json({ error: "Informe o nome do escritório." }, { status: 400 }));
+  }
+
+  const preferenciasForamEnviadas = "exibirNomeNaLateral" in payload || "exibirNomeNoHeader" in payload;
+  if (preferenciasForamEnviadas && (typeof payload.exibirNomeNaLateral !== "boolean" || typeof payload.exibirNomeNoHeader !== "boolean")) {
+    return applySetCookies(Response.json({ error: "As opções de exibição são inválidas." }, { status: 400 }));
   }
 
   const erroTamanho = validarCampos([["Nome do escritório", nome, LIMITES.nome]]);
@@ -72,19 +87,28 @@ export async function PATCH(request: Request) {
     return applySetCookies(Response.json({ error: "Só o responsável pelo escritório pode renomeá-lo." }, { status: 403 }));
   }
 
+  const updates: Record<string, unknown> = { nome };
+  if (preferenciasForamEnviadas) {
+    updates.exibir_nome_na_lateral = payload.exibirNomeNaLateral;
+    updates.exibir_nome_no_header = payload.exibirNomeNoHeader;
+  }
+
   const { data: escritorioAtualizado, error } = await supabase
     .from("escritorios")
-    .update({ nome })
+    .update(updates)
     .eq("id", perfil.escritorio_id)
-    .select("nome")
+    .select(preferenciasForamEnviadas ? "nome, exibir_nome_na_lateral, exibir_nome_no_header" : "nome")
     .single();
 
   if (error || !escritorioAtualizado) {
     if (error?.code === "42501") {
       return applySetCookies(Response.json({ error: "O banco ainda não liberou a alteração do escritório. Execute a migração 0023 no Supabase." }, { status: 503 }));
     }
+    if (error?.code === "42703") {
+      return applySetCookies(Response.json({ error: "A personalização da exibição precisa da migração 0024 no Supabase." }, { status: 503 }));
+    }
     return applySetCookies(Response.json({ error: "Não foi possível atualizar o escritório." }, { status: 500 }));
   }
 
-  return applySetCookies(Response.json({ nome: escritorioAtualizado.nome }));
+  return applySetCookies(Response.json({ nome: escritorioAtualizado.nome, exibirNomeNaLateral: preferenciasForamEnviadas ? escritorioAtualizado.exibir_nome_na_lateral : undefined, exibirNomeNoHeader: preferenciasForamEnviadas ? escritorioAtualizado.exibir_nome_no_header : undefined }));
 }

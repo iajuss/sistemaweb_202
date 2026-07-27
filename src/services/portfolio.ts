@@ -250,7 +250,7 @@ export async function listarPerfis(): Promise<{ id: string; nome: string }[]> {
 }
 
 /** GET /api/escritorio — nome do escritório da sessão. */
-export async function listarEscritorio(): Promise<{ nome: string; logoUrl: string | null }> {
+export async function listarEscritorio(): Promise<{ nome: string; logoUrl: string | null; exibirNomeNaLateral: boolean; exibirNomeNoHeader: boolean; preferenciasDisponiveis: boolean }> {
   const response = await fetch("/api/escritorio");
   if (!response.ok) {
     throw new Error(await extrairMensagemDeErro(response, "Não foi possível carregar o escritório."));
@@ -259,11 +259,11 @@ export async function listarEscritorio(): Promise<{ nome: string; logoUrl: strin
 }
 
 /** PATCH /api/escritorio — renomeia o escritório (só o responsável). */
-export async function atualizarEscritorio(nome: string): Promise<{ nome: string }> {
+export async function atualizarEscritorio(nome: string, exibicao?: { exibirNomeNaLateral: boolean; exibirNomeNoHeader: boolean }): Promise<{ nome: string; exibirNomeNaLateral?: boolean; exibirNomeNoHeader?: boolean }> {
   const response = await fetch("/api/escritorio", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ nome }),
+    body: JSON.stringify(exibicao ? { nome, ...exibicao } : { nome }),
   });
   if (!response.ok) {
     throw new Error(await extrairMensagemDeErro(response, "Não foi possível atualizar o escritório."));

@@ -222,3 +222,67 @@ html[data-vision="colorblind"][data-vision="colorblind"][data-vision="colorblind
    versão recolhida redefine o padding com dois `.sidebar`. */
 .sidebar .sidebar-footer,.sidebar.collapsed.sidebar .sidebar-footer{padding-left:12px;padding-right:12px}
 .sidebar .sidebar-settings,.sidebar .sidebar-logout,.sidebar.collapsed.sidebar .sidebar-footer button{padding-left:12px;padding-right:12px;gap:14px}
+
+/* A edição do nome do escritório é uma única linha de controles: o botão
+   secundário não deve herdar a margem vertical usada fora desse formulário. */
+.escritorio-card .escritorio-rename-form{display:grid;grid-template-columns:minmax(0,360px) auto auto;align-items:stretch;gap:10px;width:100%}
+.escritorio-card .escritorio-rename-form input:not([type="checkbox"]),.escritorio-card .escritorio-rename-form button{height:66px;box-sizing:border-box;margin:0!important}
+.escritorio-card .escritorio-rename-form button{min-width:92px}
+@media(max-width:620px){.escritorio-card .escritorio-rename-form{grid-template-columns:1fr 1fr}.escritorio-card .escritorio-rename-form input{grid-column:1/-1}.escritorio-card .escritorio-rename-form button{min-width:0}}
+
+/* Listas nativas: a janela aberta segue a paleta do produto em vez do azul
+   padrão do navegador. A seta é desenhada aqui para permanecer legível nos
+   dois temas, inclusive em filtros compactos. */
+select{color-scheme:light;accent-color:var(--primary);appearance:none;background-color:var(--surface);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%23214d5d' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.7'/%3E%3C/svg%3E");background-position:right 12px center;background-repeat:no-repeat;background-size:12px 8px;padding-right:36px;transition:border-color .16s,box-shadow .16s,background-color .16s}
+select:hover{border-color:#9fbcc1}
+select:focus{border-color:var(--primary);box-shadow:0 0 0 3px #dceced;outline:0}
+select option{background:#fff;color:#1c2c33}
+select option:checked,select option:hover{background:#dfeeed linear-gradient(#dfeeed,#dfeeed);color:#214d5d}
+html[data-theme="dark"] select{color-scheme:dark;accent-color:#759b8a;background-color:#172126;border-color:#445256;color:#edf3ee;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%23c7ddd0' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.7'/%3E%3C/svg%3E")}
+html[data-theme="dark"] select:hover{border-color:#759b8a}
+html[data-theme="dark"] select:focus{border-color:#8eb69b;box-shadow:0 0 0 3px #2f463d}
+html[data-theme="dark"] select option{background:#172126;color:#edf3ee}
+html[data-theme="dark"] select option:checked,html[data-theme="dark"] select option:hover{background:#314a40 linear-gradient(#314a40,#314a40);color:#f4faf5}
+
+/* Cada atividade do calendário já é um botão; o clareamento breve confirma
+   que ela abre detalhes sem alterar a cor que comunica seu status. */
+.calendar-task{transition:filter .16s ease,box-shadow .16s ease}
+.calendar-task:not(:disabled):hover{filter:brightness(1.14);box-shadow:0 2px 5px rgba(16,29,33,.16)}
+.calendar-task:focus-visible{outline:2px solid var(--secondary);outline-offset:1px}
+
+/* Componente de seleção próprio: evita a aparência variável (e o azul do
+   sistema operacional) dos menus nativos em todo o produto. */
+.styled-select{position:relative;display:block;min-width:0}
+.styled-select-trigger{width:100%;min-height:42px;display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #cad8da;border-radius:8px;background:#fff;color:var(--text);padding:10px 11px;font:inherit;text-align:left;transition:border-color .16s,box-shadow .16s,background-color .16s}
+.styled-select-trigger>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.styled-select-trigger i{width:9px;height:9px;flex:none;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(45deg) translateY(-2px)}
+.styled-select-trigger:hover{border-color:#9fbcc1}.styled-select-trigger:focus-visible{outline:0;border-color:var(--primary);box-shadow:0 0 0 3px #dceced}
+.styled-select-trigger:disabled{opacity:.65;cursor:not-allowed}
+.styled-select-options{position:absolute;z-index:80;top:calc(100% + 4px);left:0;width:100%;min-width:max-content;max-width:min(420px,calc(100vw - 32px));max-height:260px;overflow:auto;padding:4px;border:1px solid #b9ced1;border-radius:9px;background:#fff;box-shadow:0 12px 28px rgba(28,44,51,.17)}
+.styled-select-options button{display:block;width:100%;border:0;border-radius:6px;background:transparent;color:#28434d;padding:9px 10px;font:inherit;font-size:13px;text-align:left;white-space:normal;cursor:pointer}.styled-select-options button:hover,.styled-select-options button:focus-visible{outline:0;background:#edf5f3;color:#214d5d}.styled-select-options button.selected{background:#dfeeed;color:#214d5d;font-weight:700}.styled-select-options button:disabled{opacity:.55;cursor:not-allowed}
+label>.styled-select{width:100%}.filters .styled-select{min-width:190px}.analysis-filters .styled-select{min-width:126px}.calendar-toolbar .styled-select{width:180px}.calendar-period-picker .styled-select{height:32px}.calendar-period-picker .styled-select-trigger{min-height:32px;padding:5px 9px;font-size:12px;font-weight:700}.calendar-period-picker .styled-select:first-child{min-width:118px}.calendar-period-picker .styled-select:last-child{min-width:72px}.range-calendar-header .styled-select{flex:1 1 0}.range-calendar-header .styled-select-trigger{min-height:25px;padding:3px 4px;border-color:var(--border);border-radius:6px;background:transparent;font-size:10px;font-weight:700}.range-calendar-header .styled-select-options{font-size:11px}
+html[data-theme="dark"] .styled-select-trigger{background:#181f22;border-color:#4a5758;color:#f0f2ef}.styled-select-trigger:hover,html[data-theme="dark"] .styled-select-trigger:hover{border-color:#759b8a}html[data-theme="dark"] .styled-select-trigger:focus-visible{border-color:#8eb69b;box-shadow:0 0 0 3px #2f463d}html[data-theme="dark"] .styled-select-options{background:#1b2528;border-color:#53635d;box-shadow:0 14px 30px rgba(0,0,0,.38)}html[data-theme="dark"] .styled-select-options button{color:#d9e4dc}html[data-theme="dark"] .styled-select-options button:hover,html[data-theme="dark"] .styled-select-options button:focus-visible{background:#2a4038;color:#f4faf5}html[data-theme="dark"] .styled-select-options button.selected{background:#3c5b4e;color:#f4faf5}
+@media(max-width:760px){.filters .styled-select{width:100%}.analysis-filters .styled-select{flex:1;min-width:0}.calendar-toolbar .styled-select{width:70%}.calendar-period-picker .styled-select:first-child{flex:1;max-width:190px}}
+
+/* Status operacionais precisam se destacar mesmo em linhas longas de tabela. */
+.badge.success{background:#cdeed9;color:#116b3d;border:1px solid #77c99a;font-weight:800}
+.badge.neutral{background:#e1e8eb;color:#38525e;border:1px solid #afc0c7;font-weight:800}
+html[data-theme="dark"] .badge.success{background:#1d5138;color:#c6f4d7;border-color:#5fba85}
+html[data-theme="dark"] .badge.neutral{background:#354248;color:#e2ebee;border-color:#70858e}
+html[data-vision="colorblind"] .badge.success{background:#d9eff0;color:#006d68;border-color:#168a82}
+html[data-theme="dark"][data-vision="colorblind"] .badge.success{background:#16494a;color:#c9f1ed;border-color:#55bcb5}
+
+/* Identidade do escritório: produto na primeira linha, espaço de trabalho na segunda. */
+.brand-copy{display:grid;gap:2px;min-width:0}.brand-workspace{display:block;max-width:160px;overflow:hidden;color:#abc0c7;font-size:10px;font-weight:600;line-height:1.2;text-overflow:ellipsis;white-space:nowrap}
+.client-identity{display:flex;align-items:center;gap:9px;min-width:0}.client-identity>div{display:grid;gap:2px;min-width:0;text-align:right}.client-identity small{color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.client-identity strong{max-width:180px;overflow:hidden;color:var(--text);font-size:12px;text-overflow:ellipsis;white-space:nowrap}.client-identity .client-logo{flex:none}
+html[data-theme="dark"] .brand-workspace{color:#aebeb5}html[data-theme="dark"] .client-identity strong{color:#eef3ef}
+@media(max-width:760px){.client-identity>div{display:none}.client-identity .client-logo{max-width:88px}.brand-workspace{max-width:150px}}
+
+/* Edição contextual do nome do escritório na própria identidade da barra. */
+.brand-workspace-line{display:flex;align-items:center;gap:4px;min-width:0}.brand-workspace-line .brand-workspace{flex:1}.brand-workspace-edit,.brand-office-form button{display:grid;place-items:center;flex:none;width:18px;height:18px;padding:0;border:0;border-radius:4px;background:transparent;color:#b9d1d6;font-size:13px;line-height:1}.brand-workspace-edit:hover,.brand-office-form button:hover{background:#2c5260;color:#fff}.brand-office-form{display:grid;grid-template-columns:minmax(0,1fr) 18px 18px;gap:4px;align-items:center;min-width:0}.brand-office-form input{width:100%;min-width:0;height:23px;padding:2px 5px;border:1px solid #66818a;border-radius:5px;background:#10262f;color:#fff;font-size:10px}.brand-office-form button:first-of-type{color:#b9e7c7}.brand-office-form span{grid-column:1/-1;color:#ffb8b2;font-size:9px;line-height:1.2}.brand-office-form button:disabled{opacity:.6;cursor:wait}html[data-theme="dark"] .brand-office-form input{background:#11191b;border-color:#60746b}html[data-theme="dark"] .brand-workspace-edit:hover,html[data-theme="dark"] .brand-office-form button:hover{background:#3c5349}
+
+.escritorio-display-options{grid-column:1/-1;display:flex;align-items:center;gap:13px;margin:2px 0 0;padding:0;border:0;color:var(--muted);font-size:12px}.escritorio-display-options legend{padding:0;margin-right:4px;font-weight:700;color:var(--text)}.escritorio-display-options label{display:flex;align-items:center;gap:6px;color:var(--text);font-weight:600}.escritorio-display-options input{width:16px;height:16px;margin:0;accent-color:var(--primary)}.header-office-name{max-width:180px;overflow:hidden;color:var(--text);font-size:12px;font-weight:700;text-overflow:ellipsis;white-space:nowrap}html[data-theme="dark"] .header-office-name{color:#eef3ef}@media(max-width:620px){.escritorio-display-options{align-items:flex-start;flex-direction:column;gap:8px}.escritorio-display-options legend{margin:0}}
+
+/* Cartão do escritório: informação e ação dividem a linha; preferências
+   ocupam uma faixa inteira, evitando uma grande área vazia no painel. */
+.settings-grid .escritorio-card{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:16px;padding:24px 26px}.escritorio-card>.settings-label,.escritorio-card>.escritorio-rename-form,.escritorio-card>.escritorio-display-options,.escritorio-card>.settings-message{grid-column:1/-1}.escritorio-card>.settings-label{margin-bottom:-7px!important}.escritorio-summary{display:grid;gap:5px;min-width:0}.escritorio-summary h3{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.escritorio-card>.secondary{margin:0!important;align-self:center}.escritorio-card>.escritorio-display-options{align-items:center;gap:16px;margin:2px 0 0;padding-top:15px;border-top:1px solid var(--border)}
+@media(max-width:620px){.settings-grid .escritorio-card{grid-template-columns:1fr;gap:12px;padding:20px}.escritorio-card>.secondary{justify-self:start}.escritorio-card>.escritorio-display-options{align-items:flex-start;gap:8px}}

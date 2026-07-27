@@ -1,5 +1,6 @@
 import { createSupabaseRouteHandlerClient } from "@/lib/supabase/server";
 import { montarRespostaTarefa, substituirResponsaveisTarefa, type StatusTarefa } from "@/lib/tarefas";
+import { substituirResponsaveisModelo } from "@/lib/modelos-recorrencia";
 
 const VENCIMENTO_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const STATUS_VALIDOS: StatusTarefa[] = ["Pendente", "Concluída", "Cancelada"];
@@ -65,8 +66,27 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   }
 
   let responsavelIdsPatch: string[] | null = null;
+  let modeloIdDaTarefa: string | null = null;
   if ("responsavelIds" in payload) {
     responsavelIdsPatch = Array.isArray(payload.responsavelIds) ? payload.responsavelIds : [];
+
+    // Uma ocorrência já gerada representa o modelo recorrente. Ao alterar
+    // seus responsáveis, mantemos o modelo no mesmo estado para que as
+    // próximas ocorrências e a listagem de modelos não continuem exibindo
+    // "Sem responsável".
+    const { data: tarefa, error: tarefaError } = await supabase
+      .from("tarefas")
+      .select("modelo_id")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (tarefaError) {
+      return applySetCookies(Response.json({ error: "Não foi possível localizar a tarefa." }, { status: 500 }));
+    }
+    if (!tarefa) {
+      return applySetCookies(Response.json({ error: "Tarefa não encontrada." }, { status: 404 }));
+    }
+    modeloIdDaTarefa = (tarefa as { modelo_id: string | null }).modelo_id;
   }
 
   if ("status" in payload) {
@@ -113,6 +133,13 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const erroResponsaveis = await substituirResponsaveisTarefa(supabase, id, responsavelIdsPatch);
     if (erroResponsaveis) {
       return applySetCookies(Response.json({ error: "Não foi possível atualizar os responsáveis da tarefa." }, { status: 500 }));
+    }
+
+    if (modeloIdDaTarefa) {
+      const erroModelo = await substituirResponsaveisModelo(supabase, modeloIdDaTarefa, responsavelIdsPatch);
+      if (erroModelo) {
+        return applySetCookies(Response.json({ error: "Os responsáveis da tarefa foram atualizados, mas não foi possível atualizar o modelo recorrente." }, { status: 500 }));
+      }
     }
   }
 

@@ -10,6 +10,7 @@ import {
 } from "../src/services/portfolio";
 import { AccessibleModal, useAccessibleMenu, useDismissOnViewportChange, bloquearRolagemDocumento, liberarRolagemDocumento } from "./accessibility";
 import { Calendar, ResponsavelPicker } from "./calendar-view";
+import { StyledSelect } from "./styled-select";
 
 // recharts é grande e só é usado na aba "Análise". Carregado sob demanda para
 // não entrar no caminho do primeiro render da rota "/" (que abre na "Visão
@@ -130,7 +131,7 @@ function CamposCadastraisFields<T extends CamposCadastraisDraft>({ draft, setDra
     <label>Cidade<input value={draft.cidade} onChange={(e) => setDraft({ ...draft, cidade: e.target.value })} /></label>
     <label>Estado<input maxLength={2} value={draft.estado} onChange={(e) => setDraft({ ...draft, estado: e.target.value.toUpperCase() })} /></label>
     <label className="full">Endereço<input value={draft.endereco} onChange={(e) => setDraft({ ...draft, endereco: e.target.value })} /></label>
-    <label>Situação cadastral<select value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value })}>{opcoesSituacaoCadastral(draft.status).map((situacao) => <option key={situacao || "nao-informada"} value={situacao}>{situacao || "Não informada"}</option>)}</select></label>
+    <label>Situação cadastral<StyledSelect ariaLabel="Situação cadastral" value={draft.status} onChange={(value) => setDraft({ ...draft, status: value })} options={opcoesSituacaoCadastral(draft.status).map((situacao) => ({ value: situacao, label: situacao || "Não informada" }))} /></label>
     <label>Porte<input value={draft.porte} onChange={(e) => setDraft({ ...draft, porte: e.target.value })} /></label>
     <label>Código CNAE<input value={draft.cnaeCodigo} onChange={(e) => setDraft({ ...draft, cnaeCodigo: e.target.value })} /></label>
     <label className="full">Descrição do CNAE<input value={draft.cnae} onChange={(e) => setDraft({ ...draft, cnae: e.target.value })} /></label>
@@ -240,6 +241,10 @@ function Empty({ title = "Nenhum resultado encontrado", text = "Ajuste seus filt
 export function HomeClient({ userName, userEmail, papel }: { userName: string; userEmail: string; papel: Papel }) {
   const [nomeDoUsuario, setNomeDoUsuario] = useState(userName);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [nomeEscritorio, setNomeEscritorio] = useState("");
+  const [exibirNomeNaLateral, setExibirNomeNaLateral] = useState(true);
+  const [exibirNomeNoHeader, setExibirNomeNoHeader] = useState(false);
+  const [preferenciasExibicaoDisponiveis, setPreferenciasExibicaoDisponiveis] = useState(true);
   const [view, setView] = useState<View>("Visão geral");
   const [menuOpen, setMenuOpen] = useState(false);
   const mobileMenuRef = useRef<HTMLElement>(null);
@@ -282,7 +287,9 @@ export function HomeClient({ userName, userEmail, papel }: { userName: string; u
   }, []);
 
   useEffect(() => {
-    listarEscritorio().then((escritorio) => setLogoUrl(escritorio.logoUrl)).catch(() => setLogoUrl(null));
+    listarEscritorio()
+      .then((escritorio) => { setLogoUrl(escritorio.logoUrl); setNomeEscritorio(escritorio.nome); setExibirNomeNaLateral(escritorio.exibirNomeNaLateral); setExibirNomeNoHeader(escritorio.exibirNomeNoHeader); setPreferenciasExibicaoDisponiveis(escritorio.preferenciasDisponiveis); })
+      .catch(() => { setLogoUrl(null); setNomeEscritorio(""); });
   }, []);
 
   useEffect(() => {
@@ -335,14 +342,14 @@ export function HomeClient({ userName, userEmail, papel }: { userName: string; u
     view === "Auditoria" ? <Audit issues={issues} setIssues={setIssues} companies={companies} setCompanies={setCompanies} perfis={perfis} /> :
     view === "Análise" ? <Analysis companies={companies} /> :
     view === "Calendário" ? <Calendar tasks={tasks} setTasks={atualizarTarefas} companies={companies} perfis={perfis} userName={nomeDoUsuario} papel={papel} /> :
-    <Settings userName={nomeDoUsuario} userEmail={userEmail} papel={papel} logoUrl={logoUrl} onNameChange={setNomeDoUsuario} onLogoChange={setLogoUrl} />
+    <Settings userName={nomeDoUsuario} userEmail={userEmail} papel={papel} logoUrl={logoUrl} exibirNomeNaLateral={exibirNomeNaLateral} exibirNomeNoHeader={exibirNomeNoHeader} preferenciasExibicaoDisponiveis={preferenciasExibicaoDisponiveis} onNameChange={setNomeDoUsuario} onLogoChange={setLogoUrl} onEscritorioChange={(escritorio) => { setNomeEscritorio(escritorio.nome); setExibirNomeNaLateral(escritorio.exibirNomeNaLateral); setExibirNomeNoHeader(escritorio.exibirNomeNoHeader); }} />
   );
 
   return <main className={`app-shell ${sidebarCollapsed ? "sidebar-is-collapsed" : ""}`}>
     <a className="skip-link" href="#conteudo-principal">Pular para o conteúdo</a>
     <aside ref={mobileMenuRef} className={`sidebar ${menuOpen ? "open" : ""} ${sidebarCollapsed ? "collapsed" : ""}`} aria-label="Navegação principal">
       <div className="brand">
-        <div className="brand-identity">{logoUrl && <img className="brand-logo" src={logoUrl} alt="" />}<span className={`brand-name ${logoUrl ? "brand-name-com-logo" : ""}`}>Controle de carteira</span></div>
+        <div className="brand-identity">{logoUrl && <img className="brand-logo" src={logoUrl} alt="" />}<div className="brand-copy"><span className={`brand-name ${logoUrl ? "brand-name-com-logo" : ""}`}>Controle de carteira</span>{nomeEscritorio && exibirNomeNaLateral && <small className="brand-workspace">Espaço: {nomeEscritorio}</small>}</div></div>
         <button className="sidebar-toggle" type="button" title={sidebarCollapsed ? "Expandir menu" : "Recolher menu"} aria-label={sidebarCollapsed ? "Expandir navegação" : "Recolher navegação"} onClick={() => setSidebarCollapsed((current) => !current)}><span className="sidebar-glyph" aria-hidden="true" /></button>
       </div>
       <nav>{nav.map((item) => <button key={item.label} title={sidebarCollapsed ? item.label : undefined} className={view === item.label ? "active" : ""} onClick={() => { setView(item.label); setMenuOpen(false); }}><NavIcon>{item.icon}</NavIcon><span className="nav-label">{item.label}</span></button>)}</nav>
@@ -352,7 +359,7 @@ export function HomeClient({ userName, userEmail, papel }: { userName: string; u
     <section className="workspace">
       <header className="topbar">
         <div className="topbar-title"><button className="menu-button" aria-label="Abrir menu" onClick={() => setMenuOpen(true)}>☰</button><div><p className="eyebrow">Gestão contábil</p><h1>{view}</h1></div></div>
-        <div className="header-actions"><span className="header-divider" aria-hidden="true" /><button className={`theme-button ${darkMode ? "active" : ""}`} type="button" aria-label="Alternar entre modo claro e escuro" aria-pressed={darkMode} title="Alternar modo claro e escuro" onClick={toggleTheme}><span aria-hidden="true">☼</span><span aria-hidden="true">☾</span></button>{logoUrl && <img className="client-logo" src={logoUrl} alt="Logo do cliente" />}</div>
+        <div className="header-actions"><span className="header-divider" aria-hidden="true" /><button className={`theme-button ${darkMode ? "active" : ""}`} type="button" aria-label="Alternar entre modo claro e escuro" aria-pressed={darkMode} title="Alternar modo claro e escuro" onClick={toggleTheme}><span aria-hidden="true">☼</span><span aria-hidden="true">☾</span></button>{logoUrl && <img className="client-logo" src={logoUrl} alt="Logo do escritório" />}{nomeEscritorio && exibirNomeNoHeader && <span className="header-office-name">{nomeEscritorio}</span>}</div>
       </header>
       <div id="conteudo-principal" className="page-content" tabIndex={-1}>
         {loadError && <div className="notice error" role="alert"><strong>Não foi possível carregar os dados</strong><p>Tente atualizar a página.</p></div>}
@@ -364,7 +371,7 @@ export function HomeClient({ userName, userEmail, papel }: { userName: string; u
 
 function Loading() { return <div className="loading-grid" role="status" aria-live="polite" aria-label="Carregando dados">{Array.from({ length: 8 }).map((_, i) => <div className="skeleton" key={i} />)}</div>; }
 
-function Settings({ userName, userEmail, papel, logoUrl, onNameChange, onLogoChange }: { userName: string; userEmail: string; papel: Papel; logoUrl: string | null; onNameChange: (nome: string) => void; onLogoChange: (url: string | null) => void }) {
+function Settings({ userName, userEmail, papel, logoUrl, exibirNomeNaLateral, exibirNomeNoHeader, preferenciasExibicaoDisponiveis, onNameChange, onLogoChange, onEscritorioChange }: { userName: string; userEmail: string; papel: Papel; logoUrl: string | null; exibirNomeNaLateral: boolean; exibirNomeNoHeader: boolean; preferenciasExibicaoDisponiveis: boolean; onNameChange: (nome: string) => void; onLogoChange: (url: string | null) => void; onEscritorioChange: (escritorio: { nome: string; exibirNomeNaLateral: boolean; exibirNomeNoHeader: boolean }) => void }) {
   const [editandoNome, setEditandoNome] = useState(false);
   const [nomeDraft, setNomeDraft] = useState(userName);
   const [salvandoNome, setSalvandoNome] = useState(false);
@@ -479,6 +486,7 @@ function Settings({ userName, userEmail, papel, logoUrl, onNameChange, onLogoCha
   const [editandoEscritorio, setEditandoEscritorio] = useState(false);
   const [escritorioNomeDraft, setEscritorioNomeDraft] = useState("");
   const [salvandoEscritorio, setSalvandoEscritorio] = useState(false);
+  const [salvandoExibicaoNome, setSalvandoExibicaoNome] = useState(false);
   const [escritorioMessage, setEscritorioMessage] = useState("");
   const [logoMessage, setLogoMessage] = useState("");
   const [enviandoLogo, setEnviandoLogo] = useState(false);
@@ -493,11 +501,24 @@ function Settings({ userName, userEmail, papel, logoUrl, onNameChange, onLogoCha
     try {
       const atualizado = await atualizarEscritorio(escritorioNomeDraft);
       setEscritorioNome(atualizado.nome);
+      onEscritorioChange({ nome: atualizado.nome, exibirNomeNaLateral, exibirNomeNoHeader });
       setEditandoEscritorio(false);
     } catch (error) {
       setEscritorioMessage(error instanceof Error ? error.message : "Não foi possível atualizar o escritório.");
     } finally {
       setSalvandoEscritorio(false);
+    }
+  };
+
+  const salvarExibicaoNome = async (proximaLateral: boolean, proximoHeader: boolean) => {
+    setSalvandoExibicaoNome(true); setEscritorioMessage("");
+    try {
+      const atualizado = await atualizarEscritorio(escritorioNome, { exibirNomeNaLateral: proximaLateral, exibirNomeNoHeader: proximoHeader });
+      onEscritorioChange({ nome: atualizado.nome, exibirNomeNaLateral: atualizado.exibirNomeNaLateral ?? proximaLateral, exibirNomeNoHeader: atualizado.exibirNomeNoHeader ?? proximoHeader });
+    } catch (error) {
+      setEscritorioMessage(error instanceof Error ? error.message : "Não foi possível atualizar a exibição do escritório.");
+    } finally {
+      setSalvandoExibicaoNome(false);
     }
   };
 
@@ -550,10 +571,10 @@ function Settings({ userName, userEmail, papel, logoUrl, onNameChange, onLogoCha
           <button className="primary" disabled={salvandoEscritorio}>{salvandoEscritorio ? "Salvando…" : "Salvar"}</button>
           <button type="button" className="secondary" onClick={() => { setEditandoEscritorio(false); setEscritorioNomeDraft(escritorioNome); setEscritorioMessage(""); }}>Cancelar</button>
         </form> : <>
-          <h3>{escritorioNome}</h3>
-          <p>{numeroFuncionarios} {numeroFuncionarios === 1 ? "funcionário" : "funcionários"}</p>
+          <div className="escritorio-summary"><h3>{escritorioNome}</h3><p>{numeroFuncionarios} {numeroFuncionarios === 1 ? "funcionário" : "funcionários"}</p></div>
           <button type="button" className="secondary" onClick={() => setEditandoEscritorio(true)}>Editar nome</button>
         </>}
+        <fieldset className="escritorio-display-options" disabled={!preferenciasExibicaoDisponiveis || salvandoExibicaoNome}><legend>Exibir nome do escritório em</legend><label><input type="checkbox" checked={exibirNomeNaLateral} onChange={(event) => salvarExibicaoNome(event.target.checked, exibirNomeNoHeader)} />Barra lateral</label><label><input type="checkbox" checked={exibirNomeNoHeader} onChange={(event) => salvarExibicaoNome(exibirNomeNaLateral, event.target.checked)} />Header</label>{!preferenciasExibicaoDisponiveis && <small>Para ativar estas opções, aplique a migração 0024 no Supabase.</small>}</fieldset>
         {escritorioMessage && <p className="settings-message error" role="alert">{escritorioMessage}</p>}
       </article>}
       {papel === "responsavel" && <article className="panel settings-panel logo-panel"><div className="settings-panel-head"><span aria-hidden="true">▣</span><div><h3>Logo do cliente</h3><p>Use PNG, JPG ou WebP com até 2 MB. A logo aparecerá no cabeçalho e na barra lateral após o envio.</p></div></div>{logoUrl && <img className="logo-preview" src={logoUrl} alt="Prévia da logo do cliente" />}<label className="logo-upload"><span>{enviandoLogo ? "Enviando…" : "Enviar logo"}</span><input type="file" accept="image/png,image/jpeg,image/webp" disabled={enviandoLogo} onChange={enviarLogo} /></label>{logoUrl && <button type="button" className="secondary" disabled={enviandoLogo} onClick={removerLogo}>Remover logo</button>}{logoMessage && <p className={logoMessage.includes("sucesso") || logoMessage === "Logo removida." ? "settings-message success" : "settings-message error"} role="status">{logoMessage}</p>}</article>}
@@ -1007,7 +1028,7 @@ function Audit({ issues, setIssues, companies, setCompanies, perfis }: {
     </section>
     {actionError && <div className="notice error" role="alert"><p>{actionError}</p></div>}
     <section className="audit-summary">{types.slice(1).filter((t) => contarTipo(t) > 0).map((t) => <button type="button" key={t} className={type === t ? "selected" : ""} aria-pressed={type === t} onClick={() => setType(type === t ? "Todos" : t)}><span>{t === "CNPJ inválido" ? "#" : "!"}</span><strong>{contarTipo(t)}</strong><p>{t}</p></button>)}</section>
-    <section className="filters"><label>Tipo<select value={type} onChange={(e) => setType(e.target.value)}>{types.map((t) => <option key={t}>{t}</option>)}</select></label><label>Tratamento<select value={status} onChange={(e) => setStatus(e.target.value)}>{["Todos", "Pendente", "Revisado", "Ignorado"].map((s) => <option key={s}>{s}</option>)}</select></label><label>Empresa<input value={buscaEmpresa} onChange={(e) => setBuscaEmpresa(e.target.value)} placeholder="Buscar por nome" /></label></section>
+    <section className="filters"><label>Tipo<StyledSelect ariaLabel="Tipo" value={type} onChange={setType} options={types.map((value) => ({ value, label: value }))} /></label><label>Tratamento<StyledSelect ariaLabel="Tratamento" value={status} onChange={setStatus} options={["Todos", "Pendente", "Revisado", "Ignorado"].map((value) => ({ value, label: value }))} /></label><label>Empresa<input value={buscaEmpresa} onChange={(e) => setBuscaEmpresa(e.target.value)} placeholder="Buscar por nome" /></label></section>
     <section className="panel table-wrap audit-table-wrap"><table className="audit-table"><thead><tr><th scope="col">Empresa</th><th scope="col">Ocorrência</th><th scope="col">Valor atual</th><th scope="col">Sugestão</th><th scope="col">Status</th><th scope="col">Ações</th></tr></thead><tbody>{filtered.map((i) => { const empresaDaLinha = companies.find((c) => c.id === i.empresaId); const tamanhoGrupo = tamanhoPorRepresentante.get(i.id); return <tr key={i.id}><td><strong>{i.empresa}</strong></td><td><Badge tone="neutral">{i.tipo}</Badge></td><td>{tamanhoGrupo && tamanhoGrupo > 2 ? `${tamanhoGrupo} cadastros com nome parecido entre si` : i.atual}{i.status === "Revisado" && i.sugerido && <><br /><small className="static-value">corrigido para: {i.sugerido}</small></>}</td><td>{i.sugerido || "—"}</td><td><Badge tone={i.status === "Pendente" ? "warning" : i.status === "Revisado" ? "success" : "neutral"}>{i.status}</Badge><br /><small className="static-value">{formatDataHoraBrasilia(i.resolvidoEm ?? i.detectadoEm)}</small></td><td className="actions audit-actions">
       {i.status !== "Revisado" ? <>
         {i.tipo === "Duplicidade" && <button className="table-action action-resolve" onClick={() => setDuplicidade(i)} disabled={updatingId === i.id}>Resolver duplicidade</button>}
@@ -1057,7 +1078,7 @@ function Analysis({ companies }: { companies: Empresa[] }) {
 
   return <>
     <section className="section-head"><div><h2>Composição da carteira</h2><p>Explore o perfil dos clientes cadastrados.</p></div><Badge tone="blue">{filtered.length} empresas</Badge></section>
-    <section className="filters analysis-filters"><input aria-label="Buscar por empresa ou CNAE" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar empresa ou atividade" />{[[state, setState, ["Todos", ...Array.from(new Set(companies.map((c) => c.estado)))]], [size, setSize, ["Todos", ...Array.from(new Set(companies.map((c) => c.porte)))]], [situation, setSituation, ["Todos", ...Array.from(new Set(companies.map((c) => c.status)))] ]].map(([value, setter, options], i) => <select key={i} value={value as string} onChange={(e) => (setter as (v: string) => void)(e.target.value)}>{(options as string[]).map((o) => <option key={o}>{o}</option>)}</select>)}</section>
+    <section className="filters analysis-filters"><input aria-label="Buscar por empresa ou CNAE" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar empresa ou atividade" />{[[state, setState, ["Todos", ...Array.from(new Set(companies.map((c) => c.estado)))]], [size, setSize, ["Todos", ...Array.from(new Set(companies.map((c) => c.porte)))]], [situation, setSituation, ["Todos", ...Array.from(new Set(companies.map((c) => c.status)))] ]].map(([value, setter, options], i) => <StyledSelect key={i} ariaLabel={`Filtro ${i + 1}`} value={value as string} onChange={setter as (v: string) => void} options={(options as string[]).map((option) => ({ value: option, label: option }))} />)}</section>
     {filtered.length === 0 ? <Empty title="Sem empresas para analisar" text="Nenhum cadastro corresponde aos filtros selecionados." /> : <Suspense fallback={<div className="chart-grid-loading">Carregando gráficos…</div>}><section className="chart-grid">
       <ChartCard title="Empresas por estado" hint="Clique para detalhar"><BarVisual data={stateData} scrollable onSelect={(nome) => abrirSegmento("estado", nome)} /></ChartCard>
       <ChartCard title="Distribuição por porte" hint="Clique para detalhar"><PieVisual data={sizeData} onSelect={(nome) => abrirSegmento("porte", nome)} /></ChartCard>

@@ -8,6 +8,7 @@ import {
 } from "../src/services/portfolio";
 import { AccessibleModal, useAccessibleMenu, useDismissOnViewportChange } from "./accessibility";
 import { editarTarefa, excluirTarefa } from "../src/services/tarefas-extra";
+import { StyledSelect } from "./styled-select";
 
 const formatDate = (date: string) => new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" }).format(new Date(`${date}T12:00:00`));
 const formatDataLonga = (date: string) => new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "long", year: "numeric" }).format(new Date(`${date}T12:00:00`));
@@ -170,8 +171,8 @@ function RepeticaoRangePicker({ inicio, fim, onChange }: {
 
   const renderCalendario = (ano: number, mes: number, setAno: (a: number) => void, setMes: (m: number) => void, label: string) => <div className="range-calendar" key={label}>
     <div className="range-calendar-header">
-      <select aria-label={`${label} — mês`} value={mes} onChange={(e) => setMes(Number(e.target.value))}>{MESES_ABREV.map((m, i) => <option key={m} value={i}>{m}</option>)}</select>
-      <select aria-label={`${label} — ano`} value={ano} onChange={(e) => setAno(Number(e.target.value))}>{anosDisponiveis(ano).map((a) => <option key={a} value={a}>{a}</option>)}</select>
+      <StyledSelect ariaLabel={`${label} — mês`} value={String(mes)} onChange={(value) => setMes(Number(value))} options={MESES_ABREV.map((m, i) => ({ value: String(i), label: m }))} />
+      <StyledSelect ariaLabel={`${label} — ano`} value={String(ano)} onChange={(value) => setAno(Number(value))} options={anosDisponiveis(ano).map((a) => ({ value: String(a), label: String(a) }))} />
     </div>
     <div className="range-weekdays">{["D", "S", "T", "Q", "Q", "S", "S"].map((d, i) => <span key={i}>{d}</span>)}</div>
     <div className="range-day-grid">{mesGrid(ano, mes).map((dia, i) => {
@@ -258,7 +259,7 @@ function TarefaEditModal({ tarefa, companies, perfis, onClose, onSaved }: {
       </div>
       <small className="field-hint">{natureza === "Interna" ? "Reunião ou atividade da própria equipe." : "Compromisso com uma empresa cliente."}</small>
     </div>
-    {natureza === "Externa" && companies.length > 0 && <label>Empresa<select value={empresaId} onChange={(e) => setEmpresaId(e.target.value)}>{companies.map((c) => <option key={c.id} value={c.id}>{c.fantasia}</option>)}</select></label>}
+    {natureza === "Externa" && companies.length > 0 && <label>Empresa<StyledSelect ariaLabel="Empresa" value={empresaId} onChange={setEmpresaId} options={companies.map((c) => ({ value: c.id, label: c.fantasia }))} /></label>}
     <div className="field-block">
       <span className="field-label">Responsáveis</span>
       <ResponsavelPicker perfis={perfis} selecionados={responsavelIds} onChange={setResponsavelIds} />
@@ -340,7 +341,7 @@ function ModeloEditModal({ modelo, companies, perfis, onClose, onSaved }: {
       <small className="field-hint">{natureza === "Interna" ? "Rotina ou reunião recorrente da própria equipe." : "Obrigação recorrente de uma empresa cliente."}</small>
     </div>
     <label>Tipo<input required value={tipo} onChange={(e) => setTipo(e.target.value)} placeholder="Ex.: Fiscal" /></label>
-    <label>Periodicidade<select value={periodicidade} onChange={(e) => alterarPeriodicidade(e.target.value as Periodicidade)}><option value="diario">Diário</option><option value="semanal">Semanal</option><option value="mensal">Mensal</option><option value="anual">Anual</option></select></label>
+    <label>Periodicidade<StyledSelect ariaLabel="Periodicidade" value={periodicidade} onChange={(value) => alterarPeriodicidade(value as Periodicidade)} options={[{ value: "diario", label: "Diário" }, { value: "semanal", label: "Semanal" }, { value: "mensal", label: "Mensal" }, { value: "anual", label: "Anual" }]} /></label>
     {periodicidade === "semanal" && <div className="field-block">
       <span className="field-label">Dias da semana</span>
       <div className="choice-group" role="group" aria-label="Dias da semana">
@@ -348,7 +349,7 @@ function ModeloEditModal({ modelo, companies, perfis, onClose, onSaved }: {
       </div>
     </div>}
     {periodicidade === "anual" && <div className="field-grid">
-      <label>Mês<select value={mesReferencia} onChange={(e) => setMesReferencia(Number(e.target.value))}>{MESES_PT.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select></label>
+      <label>Mês<StyledSelect ariaLabel="Mês" value={String(mesReferencia)} onChange={(value) => setMesReferencia(Number(value))} options={MESES_PT.map((m, i) => ({ value: String(i + 1), label: m }))} /></label>
       <label>Dia do mês<input type="number" min={1} max={31} required value={diaReferencia} onChange={(e) => setDiaReferencia(Number(e.target.value))} /></label>
     </div>}
     {periodicidade === "mensal" && <label>Dia do mês<input type="number" min={1} max={31} required value={diaReferencia} onChange={(e) => setDiaReferencia(Number(e.target.value))} /></label>}
@@ -361,7 +362,7 @@ function ModeloEditModal({ modelo, companies, perfis, onClose, onSaved }: {
       <small className="field-hint">{modoRepeticao === "indefinido" ? `Gera tarefas indefinidamente, ${FREQUENCIA_TEXTO[periodicidade]}.` : "Para de gerar novas tarefas após o período informado."}</small>
       {modoRepeticao === "periodo" && <RepeticaoRangePicker inicio={repeteInicio} fim={repeteFim} onChange={(i, f) => { setRepeteInicio(i); setRepeteFim(f); }} />}
     </div>
-    {natureza === "Externa" && companies.length > 0 && <label>Empresa<select value={empresaId} onChange={(e) => setEmpresaId(e.target.value)}>{companies.map((c) => <option key={c.id} value={c.id}>{c.fantasia}</option>)}</select></label>}
+    {natureza === "Externa" && companies.length > 0 && <label>Empresa<StyledSelect ariaLabel="Empresa" value={empresaId} onChange={setEmpresaId} options={companies.map((c) => ({ value: c.id, label: c.fantasia }))} /></label>}
     <div className="field-block">
       <span className="field-label">Responsáveis</span>
       <ResponsavelPicker perfis={perfis} selecionados={responsavelIds} onChange={setResponsavelIds} />
@@ -568,6 +569,7 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
   const handleTarefaEditada = async () => {
     setEditingTask(null);
     await recarregarMes("Tarefa atualizada, mas não foi possível atualizar a lista. Atualize a página.");
+    await refetchModelos("Tarefa atualizada, mas não foi possível atualizar os modelos recorrentes. Atualize a página.");
   };
 
   const confirmDeleteTask = async () => {
@@ -923,7 +925,7 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
         <button type="button" className="nav-arrow" aria-label="Ano anterior" title="Ano anterior" onClick={() => irAno(-1)}>«</button>
         <button type="button" className="nav-arrow" aria-label="Mês anterior" title="Mês anterior" onClick={() => irMes(-1)}>‹</button>
       </div>
-      <div className="calendar-period-picker"><select aria-label="Mês exibido" value={viewMes} onChange={(event) => escolherPeriodo(Number(event.target.value), viewAno)}>{MESES_PT.map((mes, index) => <option key={mes} value={index}>{mes}</option>)}</select><select aria-label="Ano exibido" value={viewAno} onChange={(event) => escolherPeriodo(viewMes, Number(event.target.value))}>{anosDisponiveis.map((ano) => <option key={ano} value={ano}>{ano}</option>)}</select></div>
+      <div className="calendar-period-picker"><StyledSelect ariaLabel="Mês exibido" value={String(viewMes)} onChange={(value) => escolherPeriodo(Number(value), viewAno)} options={MESES_PT.map((mes, index) => ({ value: String(index), label: mes }))} /><StyledSelect ariaLabel="Ano exibido" value={String(viewAno)} onChange={(value) => escolherPeriodo(viewMes, Number(value))} options={anosDisponiveis.map((ano) => ({ value: String(ano), label: String(ano) }))} /></div>
       <div className="calendar-nav-group">
         <button type="button" className="nav-arrow" aria-label="Próximo mês" title="Próximo mês" onClick={() => irMes(1)}>›</button>
         <button type="button" className="nav-arrow" aria-label="Próximo ano" title="Próximo ano" onClick={() => irAno(1)}>»</button>
@@ -931,7 +933,7 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
       </div>
     </section>
 
-    <section className="calendar-toolbar"><div className="tabs"><button className={mode === "month" ? "selected" : ""} onClick={() => setMode("month")}>Calendário</button><button className={mode === "list" ? "selected" : ""} onClick={() => setMode("list")}>Lista</button></div><label>Responsável <select value={responsible} onChange={(e) => setResponsible(e.target.value)}>{people.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label></section>
+    <section className="calendar-toolbar"><div className="tabs"><button className={mode === "month" ? "selected" : ""} onClick={() => setMode("month")}>Calendário</button><button className={mode === "list" ? "selected" : ""} onClick={() => setMode("list")}>Lista</button></div><label>Responsável <StyledSelect ariaLabel="Filtrar por responsável" value={responsible} onChange={setResponsible} options={people.map((p) => ({ value: p.id, label: p.nome }))} /></label></section>
 
     {monthLoading ? <section className="panel" role="status" aria-live="polite"><div className="empty"><span aria-hidden="true">◷</span><strong>Carregando {mesLabel.toLowerCase()}…</strong><p>Buscando as tarefas deste mês.</p></div></section> : mode === "month" ? <section className="calendar"><div className="weekdays">{["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((d) => <span key={d}>{d}</span>)}</div><div className="day-grid">{Array.from({ length: primeiroDiaSemana }, (_, i) => <div className="day muted" key={`blank-${i}`} />)}{monthDays.map((day) => { const date = `${mesISO}-${pad2(day)}`; const items = shown.filter((t) => t.vencimento === date); const holiday = feriadoPorData.get(date) ?? items.find((t) => t.coincideComFeriado)?.coincideComFeriado ?? null; const ehHoje = isMesAtual && date === dataHojeISO; return <div className={`day day-clickable ${holiday ? "holiday" : ""} ${ehHoje ? "is-today" : ""}`} key={day} onClick={(event) => { if ((event.target as HTMLElement).closest(".calendar-task")) return; abrirNovoNoDia(date); }}><span>{day}</span>{holiday && <small title={holiday.nome}>Feriado</small>}{items.map((t) => <button className={`calendar-task ${t.status === "Atrasada" ? "late" : ""} ${t.status === "Concluída" ? "done" : ""}`} key={t.id} title="Ver detalhes" onClick={() => setDetalhe(t)}>{t.titulo}</button>)}</div>; })}{Array.from({ length: diasFinaisEmBranco }, (_, i) => <div className="day muted" key={`blank-fim-${i}`} />)}</div></section> : <section className="panel list-tasks">{shown.map((t) => <div className="task-line" key={t.id}><time>{formatDate(t.vencimento)}</time><div><strong>{t.titulo}</strong><small>{nomeEmpresaTarefa(t)} · {t.responsaveis.length > 0 ? t.responsaveis.join(", ") : "Sem responsável"}</small></div>{t.coincideComFeriado && <Badge tone="warning">Feriado: {t.coincideComFeriado.nome}</Badge>}<Badge tone={t.status === "Atrasada" ? "danger" : t.status === "Concluída" ? "success" : "blue"}>{t.status}</Badge><div className="row-menu"><button className="icon-button" aria-label={`Mais opções — ${t.titulo}`} onClick={(e) => toggleTaskMenu(t.id, e.currentTarget)}>⋯</button>{menuTaskId === t.id && menuAnchor && <>
       <button type="button" className="menu-backdrop" aria-label="Fechar menu" onClick={closeTaskMenu} />
@@ -997,7 +999,7 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
         </div>
         <small className="field-hint">{draft.natureza === "Interna" ? "Reunião ou atividade da própria equipe." : "Compromisso com uma empresa cliente."}</small>
       </div>
-      {draft.natureza === "Externa" && companies.length > 0 && <label>Empresa<select value={draft.empresaId} onChange={(e) => setDraft({ ...draft, empresaId: e.target.value })}>{companies.map((c) => <option key={c.id} value={c.id}>{c.fantasia}</option>)}</select></label>}
+      {draft.natureza === "Externa" && companies.length > 0 && <label>Empresa<StyledSelect ariaLabel="Empresa" value={draft.empresaId} onChange={(value) => setDraft({ ...draft, empresaId: value })} options={companies.map((c) => ({ value: c.id, label: c.fantasia }))} /></label>}
       <div className="field-block">
         <span className="field-label">Responsáveis</span>
         <ResponsavelPicker perfis={perfis} selecionados={draft.responsavelIds} onChange={(ids) => setDraft({ ...draft, responsavelIds: ids })} />
@@ -1021,7 +1023,7 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
         <small className="field-hint">{modeloDraft.natureza === "Interna" ? "Rotina ou reunião recorrente da própria equipe." : "Obrigação recorrente de uma empresa cliente."}</small>
       </div>
       <label>Tipo<input required value={modeloDraft.tipo} onChange={(e) => setModeloDraft({ ...modeloDraft, tipo: e.target.value })} placeholder="Ex.: Fiscal" /></label>
-      <label>Periodicidade<select value={modeloDraft.periodicidade} onChange={(e) => alterarPeriodicidadeDraft(e.target.value as Periodicidade)}><option value="diario">Diário</option><option value="semanal">Semanal</option><option value="mensal">Mensal</option><option value="anual">Anual</option></select></label>
+      <label>Periodicidade<StyledSelect ariaLabel="Periodicidade" value={modeloDraft.periodicidade} onChange={(value) => alterarPeriodicidadeDraft(value as Periodicidade)} options={[{ value: "diario", label: "Diário" }, { value: "semanal", label: "Semanal" }, { value: "mensal", label: "Mensal" }, { value: "anual", label: "Anual" }]} /></label>
       {modeloDraft.periodicidade === "semanal" && <div className="field-block">
         <span className="field-label">Dias da semana</span>
         <div className="choice-group" role="group" aria-label="Dias da semana">
@@ -1029,7 +1031,7 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
         </div>
       </div>}
       {modeloDraft.periodicidade === "anual" && <div className="field-grid">
-        <label>Mês<select value={modeloDraft.mesReferencia} onChange={(e) => setModeloDraft({ ...modeloDraft, mesReferencia: Number(e.target.value) })}>{MESES_PT.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select></label>
+        <label>Mês<StyledSelect ariaLabel="Mês" value={String(modeloDraft.mesReferencia)} onChange={(value) => setModeloDraft({ ...modeloDraft, mesReferencia: Number(value) })} options={MESES_PT.map((m, i) => ({ value: String(i + 1), label: m }))} /></label>
         <label>Dia do mês<input type="number" min={1} max={31} required value={modeloDraft.diaReferencia} onChange={(e) => setModeloDraft({ ...modeloDraft, diaReferencia: Number(e.target.value) })} /></label>
       </div>}
       {modeloDraft.periodicidade === "mensal" && <label>Dia do mês<input type="number" min={1} max={31} required value={modeloDraft.diaReferencia} onChange={(e) => setModeloDraft({ ...modeloDraft, diaReferencia: Number(e.target.value) })} /></label>}
@@ -1042,7 +1044,7 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
         <small className="field-hint">{modeloDraft.modoRepeticao === "indefinido" ? `Gera tarefas indefinidamente, ${FREQUENCIA_TEXTO[modeloDraft.periodicidade]}.` : "Para de gerar novas tarefas após o período informado."}</small>
         {modeloDraft.modoRepeticao === "periodo" && <RepeticaoRangePicker inicio={modeloDraft.repeteInicio} fim={modeloDraft.repeteFim} onChange={(i, f) => setModeloDraft({ ...modeloDraft, repeteInicio: i, repeteFim: f })} />}
       </div>
-      {modeloDraft.natureza === "Externa" && companies.length > 0 && <label>Empresa<select value={modeloDraft.empresaId} onChange={(e) => setModeloDraft({ ...modeloDraft, empresaId: e.target.value })}>{companies.map((c) => <option key={c.id} value={c.id}>{c.fantasia}</option>)}</select></label>}
+      {modeloDraft.natureza === "Externa" && companies.length > 0 && <label>Empresa<StyledSelect ariaLabel="Empresa" value={modeloDraft.empresaId} onChange={(value) => setModeloDraft({ ...modeloDraft, empresaId: value })} options={companies.map((c) => ({ value: c.id, label: c.fantasia }))} /></label>}
       <div className="field-block">
         <span className="field-label">Responsáveis</span>
         <ResponsavelPicker perfis={perfis} selecionados={modeloDraft.responsavelIds} onChange={(ids) => setModeloDraft({ ...modeloDraft, responsavelIds: ids })} />
@@ -1073,7 +1075,7 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
           </div>
           <small className="field-hint">{draft.natureza === "Interna" ? "Reunião ou atividade da própria equipe." : "Compromisso com uma empresa cliente."}</small>
         </div>
-        {draft.natureza === "Externa" && companies.length > 0 && <label>Empresa<select value={draft.empresaId} onChange={(e) => setDraft({ ...draft, empresaId: e.target.value })}>{companies.map((c) => <option key={c.id} value={c.id}>{c.fantasia}</option>)}</select></label>}
+        {draft.natureza === "Externa" && companies.length > 0 && <label>Empresa<StyledSelect ariaLabel="Empresa" value={draft.empresaId} onChange={(value) => setDraft({ ...draft, empresaId: value })} options={companies.map((c) => ({ value: c.id, label: c.fantasia }))} /></label>}
         <div className="field-block">
           <span className="field-label">Responsáveis</span>
           <ResponsavelPicker perfis={perfis} selecionados={draft.responsavelIds} onChange={(ids) => setDraft({ ...draft, responsavelIds: ids })} />
@@ -1093,7 +1095,7 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
           <small className="field-hint">{modeloDraft.natureza === "Interna" ? "Rotina ou reunião recorrente da própria equipe." : "Obrigação recorrente de uma empresa cliente."}</small>
         </div>
         <label>Tipo<input required value={modeloDraft.tipo} onChange={(e) => setModeloDraft({ ...modeloDraft, tipo: e.target.value })} placeholder="Ex.: Fiscal" /></label>
-        <label>Periodicidade<select value={modeloDraft.periodicidade} onChange={(e) => alterarPeriodicidadeNoDia(e.target.value as Periodicidade)}><option value="diario">Diário</option><option value="semanal">Semanal</option><option value="mensal">Mensal</option><option value="anual">Anual</option></select></label>
+        <label>Periodicidade<StyledSelect ariaLabel="Periodicidade" value={modeloDraft.periodicidade} onChange={(value) => alterarPeriodicidadeNoDia(value as Periodicidade)} options={[{ value: "diario", label: "Diário" }, { value: "semanal", label: "Semanal" }, { value: "mensal", label: "Mensal" }, { value: "anual", label: "Anual" }]} /></label>
         {modeloDraft.periodicidade === "semanal" && <div className="field-block">
           <span className="field-label">Dias da semana</span>
           <div className="choice-group" role="group" aria-label="Dias da semana">
@@ -1101,7 +1103,7 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
           </div>
         </div>}
         {modeloDraft.periodicidade === "anual" && <div className="field-grid">
-          <label>Mês<select value={modeloDraft.mesReferencia} onChange={(e) => setModeloDraft({ ...modeloDraft, mesReferencia: Number(e.target.value) })}>{MESES_PT.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select></label>
+          <label>Mês<StyledSelect ariaLabel="Mês" value={String(modeloDraft.mesReferencia)} onChange={(value) => setModeloDraft({ ...modeloDraft, mesReferencia: Number(value) })} options={MESES_PT.map((m, i) => ({ value: String(i + 1), label: m }))} /></label>
           <label>Dia do mês<input type="number" min={1} max={31} required value={modeloDraft.diaReferencia} onChange={(e) => setModeloDraft({ ...modeloDraft, diaReferencia: Number(e.target.value) })} /></label>
         </div>}
         {modeloDraft.periodicidade === "mensal" && <label>Dia do mês<input type="number" min={1} max={31} required value={modeloDraft.diaReferencia} onChange={(e) => setModeloDraft({ ...modeloDraft, diaReferencia: Number(e.target.value) })} /></label>}
@@ -1114,7 +1116,7 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
           <small className="field-hint">{modeloDraft.modoRepeticao === "indefinido" ? `Gera tarefas indefinidamente, ${FREQUENCIA_TEXTO[modeloDraft.periodicidade]}.` : "Para de gerar novas tarefas após o período informado."}</small>
           {modeloDraft.modoRepeticao === "periodo" && <RepeticaoRangePicker inicio={modeloDraft.repeteInicio} fim={modeloDraft.repeteFim} onChange={(i, f) => setModeloDraft({ ...modeloDraft, repeteInicio: i, repeteFim: f })} />}
         </div>
-        {modeloDraft.natureza === "Externa" && companies.length > 0 && <label>Empresa<select value={modeloDraft.empresaId} onChange={(e) => setModeloDraft({ ...modeloDraft, empresaId: e.target.value })}>{companies.map((c) => <option key={c.id} value={c.id}>{c.fantasia}</option>)}</select></label>}
+        {modeloDraft.natureza === "Externa" && companies.length > 0 && <label>Empresa<StyledSelect ariaLabel="Empresa" value={modeloDraft.empresaId} onChange={(value) => setModeloDraft({ ...modeloDraft, empresaId: value })} options={companies.map((c) => ({ value: c.id, label: c.fantasia }))} /></label>}
         <div className="field-block">
           <span className="field-label">Responsáveis</span>
           <ResponsavelPicker perfis={perfis} selecionados={modeloDraft.responsavelIds} onChange={(ids) => setModeloDraft({ ...modeloDraft, responsavelIds: ids })} />
