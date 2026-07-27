@@ -7,9 +7,30 @@
 // gráfico nenhum), deixando o primeiro acesso lento — os gráficos só aparecem
 // na aba "Análise". Mantê-la num chunk separado tira recharts do caminho
 // crítico do primeiro paint e do bundle inicial.
+import { useEffect, useState } from "react";
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
-const cores = ["#2d6478", "#5d89a5", "#92b0bf", "#c8d9db", "#d9af72"];
+const coresClaras = ["#2d6478", "#5d89a5", "#92b0bf", "#c8d9db", "#d9af72"];
+const coresEscuras = ["#719887", "#96ae93", "#b7c6aa", "#d3d8ba", "#d5ad71"];
+const coresDaltonismo = ["#0072b2", "#56b4e9", "#009e73", "#e69f00", "#cc79a7"];
+
+function coresDoGrafico() {
+  if (typeof document === "undefined") return coresClaras;
+  if (document.documentElement.dataset.vision === "colorblind") return coresDaltonismo;
+  return document.documentElement.dataset.theme === "dark" ? coresEscuras : coresClaras;
+}
+
+function useCoresDoGrafico() {
+  const [cores, setCores] = useState(coresDoGrafico);
+  useEffect(() => {
+    const root = document.documentElement;
+    const atualizar = () => setCores(coresDoGrafico());
+    const observador = new MutationObserver(atualizar);
+    observador.observe(root, { attributes: true, attributeFilter: ["data-theme", "data-vision"] });
+    return () => observador.disconnect();
+  }, []);
+  return cores;
+}
 
 function axisLabelLines(value: string) {
   return value.split(" ").reduce<string[]>((lines, word) => {
@@ -32,15 +53,17 @@ function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: 
 }
 
 export function BarVisual({ data, onSelect, scrollable = false }: { data: { name: string; value: number }[]; onSelect?: (name: string) => void; scrollable?: boolean }) {
+  const cores = useCoresDoGrafico();
   const labelWidth = Math.max(36, ...data.map(({ name }) => {
     const largestLine = Math.max(...axisLabelLines(name).map((line) => line.length * 6 + 16));
     return Math.min(92, largestLine);
   }));
   const chartHeight = Math.max(190, data.length * 30);
-  const chart = <ResponsiveContainer width="100%" height={scrollable ? chartHeight : "100%"}><BarChart data={data} layout="vertical" margin={{ left: 6, right: 12 }} tabIndex={-1}><XAxis type="number" hide /><YAxis type="category" dataKey="name" width={labelWidth} tick={<BarAxisTick onSelect={onSelect} />} axisLine={false} tickLine={false} /><Tooltip cursor={false} content={<ChartTooltip />} allowEscapeViewBox={{ x: false, y: false }} /><Bar dataKey="value" fill="#2d6478" activeBar={onSelect ? { fill: "#21506a" } : undefined} radius={[0, 5, 5, 0]} barSize={14} onClick={onSelect ? (entry) => { const nome = entry.payload?.name; if (nome) onSelect(nome); } : undefined} style={onSelect ? { cursor: "pointer" } : undefined} /></BarChart></ResponsiveContainer>;
+  const chart = <ResponsiveContainer width="100%" height={scrollable ? chartHeight : "100%"}><BarChart data={data} layout="vertical" margin={{ left: 6, right: 12 }} tabIndex={-1}><XAxis type="number" hide /><YAxis type="category" dataKey="name" width={labelWidth} tick={<BarAxisTick onSelect={onSelect} />} axisLine={false} tickLine={false} /><Tooltip cursor={false} content={<ChartTooltip />} allowEscapeViewBox={{ x: false, y: false }} /><Bar dataKey="value" fill={cores[0]} activeBar={onSelect ? { fill: cores[0] } : undefined} radius={[0, 5, 5, 0]} barSize={14} onClick={onSelect ? (entry) => { const nome = entry.payload?.name; if (nome) onSelect(nome); } : undefined} style={onSelect ? { cursor: "pointer" } : undefined} /></BarChart></ResponsiveContainer>;
   return scrollable ? <div className="bar-chart-scroll"><div style={{ height: chartHeight }}>{chart}</div></div> : chart;
 }
 
 export function PieVisual({ data, legend = true, onSelect }: { data: { name: string; value: number }[]; legend?: boolean; onSelect?: (name: string) => void }) {
+  const cores = useCoresDoGrafico();
   return <div className="pie-layout"><ResponsiveContainer width={legend ? "55%" : "100%"} height="100%"><PieChart tabIndex={-1}><Pie data={data} dataKey="value" innerRadius={42} outerRadius={72} paddingAngle={3} onClick={onSelect ? (entry) => { if (entry.name != null) onSelect(String(entry.name)); } : undefined} style={onSelect ? { cursor: "pointer" } : undefined}>{data.map((_, i) => <Cell key={i} fill={cores[i % cores.length]} />)}</Pie><Tooltip content={<ChartTooltip />} allowEscapeViewBox={{ x: false, y: false }} /></PieChart></ResponsiveContainer>{legend && <div className="legend">{data.map((d, i) => onSelect ? <button type="button" key={d.name} className="legend-clickable" onClick={() => onSelect(d.name)}><i style={{ background: cores[i % cores.length] }} aria-hidden="true" />{d.name}<strong>{d.value}</strong></button> : <p key={d.name}><i style={{ background: cores[i % cores.length] }} />{d.name}<strong>{d.value}</strong></p>)}</div>}</div>;
 }
