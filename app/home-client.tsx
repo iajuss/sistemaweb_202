@@ -1,11 +1,11 @@
 "use client";
 
-import { ClipboardEvent, FormEvent, KeyboardEvent, lazy, ReactNode, Suspense, useEffect, useRef, useState } from "react";
+import { ChangeEvent, ClipboardEvent, FormEvent, KeyboardEvent, lazy, ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { extrairCNPJDoTexto, validarCNPJ } from "../lib/cnpj";
 import {
-  atualizarEmpresa, atualizarEscritorio, atualizarMembroEquipe, consultarCNPJ, convidarFuncionario, excluirEmpresa,
+  atualizarEmpresa, atualizarEscritorio, atualizarMeuNome, atualizarMembroEquipe, consultarCNPJ, convidarFuncionario, enviarLogoEscritorio, excluirEmpresa,
   executarAuditoria, formatarSocio, listarDivergencias, listarEmpresas, listarEquipe, listarEscritorio, listarPerfis,
-  listarTarefas, paraSocioPayload, salvarEmpresa, tratarDivergencia,
+  listarTarefas, paraSocioPayload, removerLogoEscritorio, salvarEmpresa, tratarDivergencia,
   type Divergencia, type Empresa, type MembroEquipe, type Papel, type SocioPayload, type Tarefa,
 } from "../src/services/portfolio";
 import { AccessibleModal, useAccessibleMenu, useDismissOnViewportChange } from "./accessibility";
@@ -204,6 +204,8 @@ function Empty({ title = "Nenhum resultado encontrado", text = "Ajuste seus filt
 }
 
 export function HomeClient({ userName, userEmail, papel }: { userName: string; userEmail: string; papel: Papel }) {
+  const [nomeDoUsuario, setNomeDoUsuario] = useState(userName);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [view, setView] = useState<View>("Visão geral");
   const [menuOpen, setMenuOpen] = useState(false);
   const mobileMenuRef = useRef<HTMLElement>(null);
@@ -235,6 +237,10 @@ export function HomeClient({ userName, userEmail, papel }: { userName: string; u
 
   useEffect(() => {
     setDarkMode(window.localStorage.getItem("controle-carteira-theme") === "dark");
+  }, []);
+
+  useEffect(() => {
+    listarEscritorio().then((escritorio) => setLogoUrl(escritorio.logoUrl)).catch(() => setLogoUrl(null));
   }, []);
 
   useEffect(() => {
@@ -284,11 +290,11 @@ export function HomeClient({ userName, userEmail, papel }: { userName: string; u
 
   const content = loading ? <Loading /> : (
     view === "Visão geral" ? <Overview companies={companies} issues={issues} tasks={tasks} weekTasks={weekTasks} go={setView} /> :
-    view === "Onboarding" ? <Onboarding companies={companies} setCompanies={setCompanies} perfis={perfis} userName={userName} setIssues={setIssues} /> :
+    view === "Onboarding" ? <Onboarding companies={companies} setCompanies={setCompanies} perfis={perfis} userName={nomeDoUsuario} setIssues={setIssues} /> :
     view === "Auditoria" ? <Audit issues={issues} setIssues={setIssues} companies={companies} setCompanies={setCompanies} perfis={perfis} /> :
     view === "Análise" ? <Analysis companies={companies} /> :
-    view === "Calendário" ? <Calendar tasks={tasks} setTasks={atualizarTarefas} companies={companies} perfis={perfis} userName={userName} papel={papel} /> :
-    <Settings userName={userName} userEmail={userEmail} papel={papel} />
+    view === "Calendário" ? <Calendar tasks={tasks} setTasks={atualizarTarefas} companies={companies} perfis={perfis} userName={nomeDoUsuario} papel={papel} /> :
+    <Settings userName={nomeDoUsuario} userEmail={userEmail} papel={papel} logoUrl={logoUrl} onNameChange={setNomeDoUsuario} onLogoChange={setLogoUrl} />
   );
 
   return <main className={`app-shell ${sidebarCollapsed ? "sidebar-is-collapsed" : ""}`}>
@@ -305,7 +311,7 @@ export function HomeClient({ userName, userEmail, papel }: { userName: string; u
     <section className="workspace">
       <header className="topbar">
         <div className="topbar-title"><button className="menu-button" aria-label="Abrir menu" onClick={() => setMenuOpen(true)}>☰</button><div><p className="eyebrow">Gestão contábil</p><h1>{view}</h1></div></div>
-        <div className="header-actions"><span className="header-divider" aria-hidden="true" /><button className={`theme-button ${darkMode ? "active" : ""}`} type="button" aria-label="Alternar entre modo claro e escuro" aria-pressed={darkMode} title="Alternar modo claro e escuro" onClick={toggleTheme}><span aria-hidden="true">☼</span><span aria-hidden="true">☾</span></button><div className="logo-placeholder"><span>▣</span> Logo do cliente</div></div>
+        <div className="header-actions"><span className="header-divider" aria-hidden="true" /><button className={`theme-button ${darkMode ? "active" : ""}`} type="button" aria-label="Alternar entre modo claro e escuro" aria-pressed={darkMode} title="Alternar modo claro e escuro" onClick={toggleTheme}><span aria-hidden="true">☼</span><span aria-hidden="true">☾</span></button>{logoUrl && <img className="client-logo" src={logoUrl} alt="Logo do cliente" />}</div>
       </header>
       <div id="conteudo-principal" className="page-content" tabIndex={-1}>
         {loadError && <div className="notice error" role="alert"><strong>Não foi possível carregar os dados</strong><p>Tente atualizar a página.</p></div>}
@@ -317,7 +323,12 @@ export function HomeClient({ userName, userEmail, papel }: { userName: string; u
 
 function Loading() { return <div className="loading-grid" role="status" aria-live="polite" aria-label="Carregando dados">{Array.from({ length: 8 }).map((_, i) => <div className="skeleton" key={i} />)}</div>; }
 
-function Settings({ userName, userEmail, papel }: { userName: string; userEmail: string; papel: Papel }) {
+function Settings({ userName, userEmail, papel, logoUrl, onNameChange, onLogoChange }: { userName: string; userEmail: string; papel: Papel; logoUrl: string | null; onNameChange: (nome: string) => void; onLogoChange: (url: string | null) => void }) {
+  const [editandoNome, setEditandoNome] = useState(false);
+  const [nomeDraft, setNomeDraft] = useState(userName);
+  const [salvandoNome, setSalvandoNome] = useState(false);
+  const [nomeMessage, setNomeMessage] = useState("");
+  const [senhaAtual, setSenhaAtual] = useState("");
   const [senha, setSenha] = useState("");
   const [confirmacao, setConfirmacao] = useState("");
   const [message, setMessage] = useState("");
@@ -346,22 +357,71 @@ function Settings({ userName, userEmail, papel }: { userName: string; userEmail:
   const updatePassword = async (event: FormEvent) => {
     event.preventDefault();
     setMessage("");
+    if (!senhaAtual) {
+      setMessage("Informe a senha atual.");
+      return;
+    }
     if (senha !== confirmacao) {
       setMessage("As senhas informadas não coincidem.");
       return;
     }
     setSavingPassword(true);
-    const response = await fetch("/api/auth/password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ senha }) });
+    const response = await fetch("/api/auth/password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ senhaAtual, senha }) });
     if (!response.ok) {
       const data = (await response.json()) as { error?: string };
       setMessage(data.error ?? "Não foi possível atualizar a senha.");
       setSavingPassword(false);
       return;
     }
+    setSenhaAtual("");
     setSenha("");
     setConfirmacao("");
     setMessage("Senha atualizada com sucesso.");
     setSavingPassword(false);
+  };
+
+  const salvarNome = async (event: FormEvent) => {
+    event.preventDefault();
+    setSalvandoNome(true); setNomeMessage("");
+    try {
+      const atualizado = await atualizarMeuNome(nomeDraft);
+      onNameChange(atualizado.nome);
+      setNomeDraft(atualizado.nome);
+      setEditandoNome(false);
+    } catch (error) {
+      setNomeMessage(error instanceof Error ? error.message : "Não foi possível atualizar o seu nome.");
+    } finally {
+      setSalvandoNome(false);
+    }
+  };
+
+  const enviarLogo = async (event: ChangeEvent<HTMLInputElement>) => {
+    const logo = event.target.files?.[0];
+    if (!logo) return;
+    setLogoMessage(""); setEnviandoLogo(true);
+    try {
+      const atualizado = await enviarLogoEscritorio(logo);
+      onLogoChange(atualizado.logoUrl);
+      setLogoMessage("Logo atualizada com sucesso.");
+    } catch (error) {
+      setLogoMessage(error instanceof Error ? error.message : "Não foi possível enviar a logo.");
+    } finally {
+      setEnviandoLogo(false);
+      event.target.value = "";
+    }
+  };
+
+  const removerLogo = async () => {
+    setLogoMessage(""); setEnviandoLogo(true);
+    try {
+      await removerLogoEscritorio();
+      onLogoChange(null);
+      setLogoMessage("Logo removida.");
+    } catch (error) {
+      setLogoMessage(error instanceof Error ? error.message : "Não foi possível remover a logo.");
+    } finally {
+      setEnviandoLogo(false);
+    }
   };
 
   const [equipe, setEquipe] = useState<MembroEquipe[]>([]);
@@ -379,6 +439,8 @@ function Settings({ userName, userEmail, papel }: { userName: string; userEmail:
   const [escritorioNomeDraft, setEscritorioNomeDraft] = useState("");
   const [salvandoEscritorio, setSalvandoEscritorio] = useState(false);
   const [escritorioMessage, setEscritorioMessage] = useState("");
+  const [logoMessage, setLogoMessage] = useState("");
+  const [enviandoLogo, setEnviandoLogo] = useState(false);
 
   useEffect(() => {
     if (papel === "responsavel") listarEscritorio().then((e) => { setEscritorioNome(e.nome); setEscritorioNomeDraft(e.nome); }).catch(() => {});
@@ -439,7 +501,7 @@ function Settings({ userName, userEmail, papel }: { userName: string; userEmail:
   return <>
     <section className="section-head settings-heading"><div><p className="eyebrow">Conta e acessibilidade</p><h2>Configurações</h2><p>Gerencie suas informações, segurança e preferências de visualização.</p></div></section>
     <section className="settings-grid">
-      <article className="panel account-card"><div className="account-avatar">{userName.slice(0, 2).toUpperCase()}</div><div><p className="settings-label">Conta conectada</p><h3>{userName}</h3><p>{userEmail}</p></div></article>
+      <article className="panel account-card"><div className="account-avatar">{userName.slice(0, 2).toUpperCase()}</div><div><p className="settings-label">Conta conectada</p>{editandoNome ? <form className="account-name-form" onSubmit={salvarNome}><label>Seu nome<input autoComplete="name" required value={nomeDraft} onChange={(event) => setNomeDraft(event.target.value)} /></label><button className="primary" disabled={salvandoNome}>{salvandoNome ? "Salvando…" : "Salvar"}</button><button type="button" className="secondary" onClick={() => { setEditandoNome(false); setNomeDraft(userName); setNomeMessage(""); }}>Cancelar</button></form> : <><h3>{userName}</h3><p>{userEmail}</p><button type="button" className="secondary" onClick={() => setEditandoNome(true)}>Editar nome</button></>}{nomeMessage && <p className="settings-message error" role="alert">{nomeMessage}</p>}</div></article>
       {papel === "responsavel" && <article className="panel escritorio-card">
         <p className="settings-label">Escritório</p>
         {editandoEscritorio ? <form className="escritorio-rename-form" onSubmit={salvarEscritorioNome}>
@@ -453,6 +515,7 @@ function Settings({ userName, userEmail, papel }: { userName: string; userEmail:
         </>}
         {escritorioMessage && <p className="settings-message error" role="alert">{escritorioMessage}</p>}
       </article>}
+      {papel === "responsavel" && <article className="panel settings-panel logo-panel"><div className="settings-panel-head"><span aria-hidden="true">▣</span><div><h3>Logo do cliente</h3><p>Use PNG, JPG ou WebP com até 2 MB. A logo aparecerá no cabeçalho após o envio.</p></div></div>{logoUrl && <img className="logo-preview" src={logoUrl} alt="Prévia da logo do cliente" />}<label className="logo-upload"><span>{enviandoLogo ? "Enviando…" : "Enviar logo"}</span><input type="file" accept="image/png,image/jpeg,image/webp" disabled={enviandoLogo} onChange={enviarLogo} /></label>{logoUrl && <button type="button" className="secondary" disabled={enviandoLogo} onClick={removerLogo}>Remover logo</button>}{logoMessage && <p className={logoMessage.includes("sucesso") || logoMessage === "Logo removida." ? "settings-message success" : "settings-message error"} role="status">{logoMessage}</p>}</article>}
       {papel === "responsavel" && <article className="panel settings-panel equipe-panel">
         <div className="settings-panel-head"><span aria-hidden="true">◍</span><div><h3>Equipe</h3><p>Convide funcionários para trabalhar junto com você neste espaço.</p></div></div>
         <form className="settings-form convite-form" onSubmit={convidar}>
@@ -465,7 +528,7 @@ function Settings({ userName, userEmail, papel }: { userName: string; userEmail:
           {equipeTable}
         </details> : equipeTable}
       </article>}
-      <article className="panel settings-panel"><div className="settings-panel-head"><span aria-hidden="true">◉</span><div><h3>Redefinir senha</h3><p>Escolha uma nova senha com pelo menos 8 caracteres.</p></div></div><form className="settings-form" onSubmit={updatePassword}><label>Nova senha<input type="password" autoComplete="new-password" minLength={8} required value={senha} onChange={(event) => setSenha(event.target.value)} /></label><label>Confirmar nova senha<input type="password" autoComplete="new-password" minLength={8} required value={confirmacao} onChange={(event) => setConfirmacao(event.target.value)} /></label>{message && <p className={message.includes("sucesso") ? "settings-message success" : "settings-message error"} role={message.includes("sucesso") ? "status" : "alert"}>{message}</p>}<button className="primary" disabled={savingPassword}>{savingPassword ? "Atualizando…" : "Atualizar senha"}</button></form></article>
+      <article className="panel settings-panel"><div className="settings-panel-head"><span aria-hidden="true">◉</span><div><h3>Redefinir senha</h3><p>Confirme a senha atual antes de escolher uma nova senha com pelo menos 8 caracteres.</p></div></div><form className="settings-form" onSubmit={updatePassword}><label className="full">Senha atual<input type="password" autoComplete="current-password" required value={senhaAtual} onChange={(event) => setSenhaAtual(event.target.value)} /></label><label>Nova senha<input type="password" autoComplete="new-password" minLength={8} required value={senha} onChange={(event) => setSenha(event.target.value)} /></label><label>Confirmar nova senha<input type="password" autoComplete="new-password" minLength={8} required value={confirmacao} onChange={(event) => setConfirmacao(event.target.value)} /></label>{message && <p className={message.includes("sucesso") ? "settings-message success" : "settings-message error"} role={message.includes("sucesso") ? "status" : "alert"}>{message}</p>}<button className="primary" disabled={savingPassword}>{savingPassword ? "Atualizando…" : "Atualizar senha"}</button></form></article>
       <article className="panel settings-panel"><div className="settings-panel-head"><span aria-hidden="true">◌</span><div><h3>Modo daltonismo</h3><p>Usa a paleta Okabe–Ito e indicadores textuais para não depender apenas de vermelho e verde.</p></div></div><div className="choice-group" role="radiogroup" aria-label="Modo daltonismo"><button type="button" data-choice="default" tabIndex={vision === "default" ? 0 : -1} className={vision === "default" ? "selected" : ""} role="radio" aria-checked={vision === "default"} onKeyDown={(event) => navegarRadio(event, ["default", "colorblind"], vision, applyVision)} onClick={() => applyVision("default")}><i className="palette-default" aria-hidden="true" />Padrão</button><button type="button" data-choice="colorblind" tabIndex={vision === "colorblind" ? 0 : -1} className={vision === "colorblind" ? "selected" : ""} role="radio" aria-checked={vision === "colorblind"} onKeyDown={(event) => navegarRadio(event, ["default", "colorblind"], vision, applyVision)} onClick={() => applyVision("colorblind")}><i className="palette-colorblind" aria-hidden="true" />Daltonismo</button></div></article>
       <article className="panel settings-panel"><div className="settings-panel-head"><span aria-hidden="true">Aa</span><div><h3>Tamanho da fonte</h3><p>Ajuste a leitura do sistema neste dispositivo.</p></div></div><div className="choice-group font-choices" role="radiogroup" aria-label="Tamanho da fonte">{([ ["small", "Menor"], ["normal", "Padrão"], ["large", "Maior"] ] as const).map(([value, label]) => <button type="button" key={value} data-choice={value} tabIndex={fontSize === value ? 0 : -1} className={fontSize === value ? "selected" : ""} role="radio" aria-checked={fontSize === value} onKeyDown={(event) => navegarRadio(event, ["small", "normal", "large"], fontSize, applyFontSize)} onClick={() => applyFontSize(value)}><i className={`font-${value}`} aria-hidden="true">A</i>{label}</button>)}</div></article>
     </section>
@@ -870,12 +933,12 @@ function Audit({ issues, setIssues, companies, setCompanies, perfis }: {
     {actionError && <div className="notice error" role="alert"><p>{actionError}</p></div>}
     <section className="audit-summary">{types.slice(1).map((t) => <article key={t}><span>{t === "CNPJ inválido" ? "#" : "!"}</span><strong>{contarTipo(t)}</strong><p>{t}</p></article>)}</section>
     <section className="filters"><label>Tipo<select value={type} onChange={(e) => setType(e.target.value)}>{types.map((t) => <option key={t}>{t}</option>)}</select></label><label>Tratamento<select value={status} onChange={(e) => setStatus(e.target.value)}>{["Todos", "Pendente", "Revisado", "Ignorado"].map((s) => <option key={s}>{s}</option>)}</select></label></section>
-    <section className="panel table-wrap"><table className="audit-table"><thead><tr><th scope="col">Empresa</th><th scope="col">Ocorrência</th><th scope="col">Valor atual</th><th scope="col">Sugestão</th><th scope="col">Status</th><th scope="col">Ações</th></tr></thead><tbody>{filtered.map((i) => { const empresaDaLinha = companies.find((c) => c.id === i.empresaId); const tamanhoGrupo = tamanhoPorRepresentante.get(i.id); return <tr key={i.id}><td><strong>{i.empresa}</strong></td><td><Badge tone="neutral">{i.tipo}</Badge></td><td>{tamanhoGrupo && tamanhoGrupo > 2 ? `${tamanhoGrupo} cadastros com nome parecido entre si` : i.atual}{i.status === "Revisado" && i.sugerido && <><br /><small className="static-value">corrigido para: {i.sugerido}</small></>}</td><td>{i.sugerido || "—"}</td><td><Badge tone={i.status === "Pendente" ? "warning" : i.status === "Revisado" ? "success" : "neutral"}>{i.status}</Badge><br /><small className="static-value">{formatDataHoraBrasilia(i.resolvidoEm ?? i.detectadoEm)}</small></td><td className="actions">
+    <section className="panel table-wrap audit-table-wrap"><table className="audit-table"><thead><tr><th scope="col">Empresa</th><th scope="col">Ocorrência</th><th scope="col">Valor atual</th><th scope="col">Sugestão</th><th scope="col">Status</th><th scope="col">Ações</th></tr></thead><tbody>{filtered.map((i) => { const empresaDaLinha = companies.find((c) => c.id === i.empresaId); const tamanhoGrupo = tamanhoPorRepresentante.get(i.id); return <tr key={i.id}><td><strong>{i.empresa}</strong></td><td><Badge tone="neutral">{i.tipo}</Badge></td><td>{tamanhoGrupo && tamanhoGrupo > 2 ? `${tamanhoGrupo} cadastros com nome parecido entre si` : i.atual}{i.status === "Revisado" && i.sugerido && <><br /><small className="static-value">corrigido para: {i.sugerido}</small></>}</td><td>{i.sugerido || "—"}</td><td><Badge tone={i.status === "Pendente" ? "warning" : i.status === "Revisado" ? "success" : "neutral"}>{i.status}</Badge><br /><small className="static-value">{formatDataHoraBrasilia(i.resolvidoEm ?? i.detectadoEm)}</small></td><td className="actions audit-actions">
       {i.status !== "Revisado" ? <>
-        {i.tipo === "Duplicidade" && <button onClick={() => setDuplicidade(i)} disabled={updatingId === i.id}>Resolver duplicidade</button>}
-        {TIPOS_CORRIGIVEIS_NO_CADASTRO.has(i.tipo) && <button onClick={() => empresaDaLinha && setCorrigindo(empresaDaLinha)} disabled={updatingId === i.id || !empresaDaLinha}>Corrigir cadastro</button>}
-        {i.sugerido && <button onClick={() => update(i.id, "aplicar_sugestao")} disabled={updatingId === i.id}>Aplicar sugestão</button>}
-        {i.status === "Pendente" && <button onClick={() => update(i.id, "ignorar")} disabled={updatingId === i.id}>Ignorar</button>}
+        {i.tipo === "Duplicidade" && <button className="table-action action-resolve" onClick={() => setDuplicidade(i)} disabled={updatingId === i.id}>Resolver duplicidade</button>}
+        {TIPOS_CORRIGIVEIS_NO_CADASTRO.has(i.tipo) && <button className="table-action action-edit" onClick={() => empresaDaLinha && setCorrigindo(empresaDaLinha)} disabled={updatingId === i.id || !empresaDaLinha}>Corrigir cadastro</button>}
+        {i.sugerido && <button className="table-action action-apply" onClick={() => update(i.id, "aplicar_sugestao")} disabled={updatingId === i.id}>Aplicar sugestão</button>}
+        {i.status === "Pendente" && <button className="table-action action-ignore" onClick={() => update(i.id, "ignorar")} disabled={updatingId === i.id}>Ignorar</button>}
       </> : "—"}
     </td></tr>; })}</tbody></table>{filtered.length === 0 && <Empty title="Nenhuma ocorrência neste filtro" text="As divergências tratadas continuam disponíveis no histórico." />}</section>
     {corrigindo && <EmpresaEditModal empresa={corrigindo} perfis={perfis} onClose={() => setCorrigindo(null)} onSaved={handleCadastroCorrigido} />}

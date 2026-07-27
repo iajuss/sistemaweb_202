@@ -13,6 +13,7 @@ import {
 export const escritorios = pgTable("escritorios", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   nome: text("nome").notNull(),
+  logoPath: text("logo_path"),
   criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().default(sql`now()`),
 });
 

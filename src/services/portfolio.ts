@@ -36,6 +36,8 @@ export type EmpresaRelacionada = {
   status: string;
 };
 
+export type Feriado = { data: string; nome: string };
+
 export type Divergencia = {
   id: string;
   empresaId: string;
@@ -248,7 +250,7 @@ export async function listarPerfis(): Promise<{ id: string; nome: string }[]> {
 }
 
 /** GET /api/escritorio — nome do escritório da sessão. */
-export async function listarEscritorio(): Promise<{ nome: string }> {
+export async function listarEscritorio(): Promise<{ nome: string; logoUrl: string | null }> {
   const response = await fetch("/api/escritorio");
   if (!response.ok) {
     throw new Error(await extrairMensagemDeErro(response, "Não foi possível carregar o escritório."));
@@ -267,6 +269,35 @@ export async function atualizarEscritorio(nome: string): Promise<{ nome: string 
     throw new Error(await extrairMensagemDeErro(response, "Não foi possível atualizar o escritório."));
   }
   return response.json();
+}
+
+export async function listarFeriados(ano: number): Promise<Feriado[]> {
+  const response = await fetch(`/api/feriados?ano=${ano}`);
+  if (!response.ok) throw new Error(await extrairMensagemDeErro(response, "Não foi possível carregar os feriados."));
+  return response.json();
+}
+
+export async function atualizarMeuNome(nome: string): Promise<{ nome: string }> {
+  const response = await fetch("/api/perfis/eu", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nome }),
+  });
+  if (!response.ok) throw new Error(await extrairMensagemDeErro(response, "Não foi possível atualizar o seu nome."));
+  return response.json();
+}
+
+export async function enviarLogoEscritorio(logo: File): Promise<{ logoUrl: string }> {
+  const form = new FormData();
+  form.append("logo", logo);
+  const response = await fetch("/api/escritorio/logo", { method: "POST", body: form });
+  if (!response.ok) throw new Error(await extrairMensagemDeErro(response, "Não foi possível enviar a logo."));
+  return response.json();
+}
+
+export async function removerLogoEscritorio(): Promise<void> {
+  const response = await fetch("/api/escritorio/logo", { method: "DELETE" });
+  if (!response.ok) throw new Error(await extrairMensagemDeErro(response, "Não foi possível remover a logo."));
 }
 
 /** GET /api/equipe — lista a equipe do escritório (só o responsável enxerga). */

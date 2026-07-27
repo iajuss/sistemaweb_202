@@ -3,7 +3,7 @@
 import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import {
   atualizarModeloRecorrencia, atualizarTarefa, criarModeloRecorrencia, criarTarefa, excluirModeloRecorrencia,
-  listarModelosRecorrencia, listarTarefas,
+  listarFeriados, listarModelosRecorrencia, listarTarefas,
   type Empresa, type ModeloRecorrencia, type Papel, type Periodicidade, type Tarefa,
 } from "../src/services/portfolio";
 import { AccessibleModal, useAccessibleMenu, useDismissOnViewportChange } from "./accessibility";
@@ -81,7 +81,6 @@ export function ResponsavelPicker({ perfis, selecionados, onChange }: {
 }) {
   const [aberto, setAberto] = useState(false);
   const menuAcessivel = useAccessibleMenu(aberto, () => setAberto(false));
-  useDismissOnViewportChange(aberto, menuAcessivel.fechar);
   const disponiveis = perfis.filter((p) => !selecionados.includes(p.id));
   const nomePorId = (id: string) => perfis.find((p) => p.id === id)?.nome ?? "…";
 
@@ -92,7 +91,6 @@ export function ResponsavelPicker({ perfis, selecionados, onChange }: {
     {selecionados.map((id) => <span key={id} className="responsavel-chip">{nomePorId(id)}<button type="button" aria-label={`Remover ${nomePorId(id)}`} onClick={() => remover(id)}>×</button></span>)}
     {disponiveis.length > 0 && <button type="button" className="responsavel-add" aria-label="Adicionar responsável" onClick={(e) => { menuAcessivel.rememberOpener(e.currentTarget); setAberto(true); }}>+</button>}
     {aberto && <>
-      <button type="button" className="menu-backdrop" aria-label="Fechar" onClick={() => setAberto(false)} />
       <div ref={menuAcessivel.menuRef} className="responsavel-dropdown" role="menu" onKeyDown={menuAcessivel.aoTeclar}>
         {disponiveis.map((p) => <button key={p.id} type="button" role="menuitem" onClick={() => adicionar(p.id)}>{p.nome}</button>)}
       </div>
@@ -410,6 +408,7 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
   // buscadas sob demanda.
   const [monthTasks, setMonthTasks] = useState<Tarefa[]>(tasks);
   const [monthLoading, setMonthLoading] = useState(false);
+  const [feriados, setFeriados] = useState<{ data: string; nome: string }[]>([]);
 
   // Interações com uma tarefa individual. O popover de detalhes é centralizado
   // na tela (ver render abaixo), então basta guardar a tarefa — não precisa
@@ -453,6 +452,14 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
     if (isMesAtual) setMonthTasks(tasks);
   }, [tasks, isMesAtual]);
 
+  useEffect(() => {
+    let cancelado = false;
+    listarFeriados(viewAno)
+      .then((dados) => { if (!cancelado) setFeriados(dados); })
+      .catch(() => { if (!cancelado) setFeriados([]); });
+    return () => { cancelado = true; };
+  }, [viewAno]);
+
   // Ao navegar para outro mês, busca as tarefas daquele mês.
   useEffect(() => {
     if (isMesAtual) return;
@@ -469,6 +476,7 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
   const people = ["Todos", ...Array.from(new Set(perfis.map((p) => p.nome)))];
   const shown = monthTasks.filter((t) => responsible === "Todos" || t.responsaveis.includes(responsible));
   const modelosShown = modelos.filter((m) => responsible === "Todos" || m.responsaveis.includes(responsible));
+  const feriadoPorData = new Map(feriados.map((feriado) => [feriado.data, feriado]));
 
   const recarregarMes = async (falhaParcial: string) => {
     try {
@@ -755,7 +763,7 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
 
     <section className="calendar-toolbar"><div className="tabs"><button className={mode === "month" ? "selected" : ""} onClick={() => setMode("month")}>Calendário</button><button className={mode === "list" ? "selected" : ""} onClick={() => setMode("list")}>Lista</button></div><label>Responsável <select value={responsible} onChange={(e) => setResponsible(e.target.value)}>{people.map((p) => <option key={p}>{p}</option>)}</select></label></section>
 
-    {monthLoading ? <section className="panel" role="status" aria-live="polite"><div className="empty"><span aria-hidden="true">◷</span><strong>Carregando {mesLabel.toLowerCase()}…</strong><p>Buscando as tarefas deste mês.</p></div></section> : mode === "month" ? <section className="calendar"><div className="weekdays">{["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((d) => <span key={d}>{d}</span>)}</div><div className="day-grid">{Array.from({ length: primeiroDiaSemana }, (_, i) => <div className="day muted" key={`blank-${i}`} />)}{monthDays.map((day) => { const date = `${mesISO}-${pad2(day)}`; const items = shown.filter((t) => t.vencimento === date); const holiday = items.find((t) => t.coincideComFeriado)?.coincideComFeriado ?? null; const ehHoje = isMesAtual && date === dataHojeISO; return <div className={`day ${holiday ? "holiday" : ""} ${ehHoje ? "is-today" : ""}`} key={day}><span>{day}</span>{holiday && <small title={holiday.nome}>Feriado</small>}{items.map((t) => <button className={`calendar-task ${t.status === "Atrasada" ? "late" : ""} ${t.status === "Concluída" ? "done" : ""}`} key={t.id} title="Ver detalhes" onClick={() => setDetalhe(t)}>{t.titulo}</button>)}</div>; })}{Array.from({ length: diasFinaisEmBranco }, (_, i) => <div className="day muted" key={`blank-fim-${i}`} />)}</div></section> : <section className="panel list-tasks">{shown.map((t) => <div className="task-line" key={t.id}><time>{formatDate(t.vencimento)}</time><div><strong>{t.titulo}</strong><small>{nomeEmpresaTarefa(t)} · {t.responsaveis.length > 0 ? t.responsaveis.join(", ") : "Sem responsável"}</small></div>{t.coincideComFeriado && <Badge tone="warning">Feriado: {t.coincideComFeriado.nome}</Badge>}<Badge tone={t.status === "Atrasada" ? "danger" : t.status === "Concluída" ? "success" : "blue"}>{t.status}</Badge><div className="row-menu"><button className="icon-button" aria-label={`Mais opções — ${t.titulo}`} onClick={(e) => toggleTaskMenu(t.id, e.currentTarget)}>⋯</button>{menuTaskId === t.id && menuAnchor && <>
+    {monthLoading ? <section className="panel" role="status" aria-live="polite"><div className="empty"><span aria-hidden="true">◷</span><strong>Carregando {mesLabel.toLowerCase()}…</strong><p>Buscando as tarefas deste mês.</p></div></section> : mode === "month" ? <section className="calendar"><div className="weekdays">{["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((d) => <span key={d}>{d}</span>)}</div><div className="day-grid">{Array.from({ length: primeiroDiaSemana }, (_, i) => <div className="day muted" key={`blank-${i}`} />)}{monthDays.map((day) => { const date = `${mesISO}-${pad2(day)}`; const items = shown.filter((t) => t.vencimento === date); const holiday = feriadoPorData.get(date) ?? items.find((t) => t.coincideComFeriado)?.coincideComFeriado ?? null; const ehHoje = isMesAtual && date === dataHojeISO; return <div className={`day ${holiday ? "holiday" : ""} ${ehHoje ? "is-today" : ""}`} key={day}><span>{day}</span>{holiday && <small title={holiday.nome}>Feriado</small>}{items.map((t) => <button className={`calendar-task ${t.status === "Atrasada" ? "late" : ""} ${t.status === "Concluída" ? "done" : ""}`} key={t.id} title="Ver detalhes" onClick={() => setDetalhe(t)}>{t.titulo}</button>)}</div>; })}{Array.from({ length: diasFinaisEmBranco }, (_, i) => <div className="day muted" key={`blank-fim-${i}`} />)}</div></section> : <section className="panel list-tasks">{shown.map((t) => <div className="task-line" key={t.id}><time>{formatDate(t.vencimento)}</time><div><strong>{t.titulo}</strong><small>{nomeEmpresaTarefa(t)} · {t.responsaveis.length > 0 ? t.responsaveis.join(", ") : "Sem responsável"}</small></div>{t.coincideComFeriado && <Badge tone="warning">Feriado: {t.coincideComFeriado.nome}</Badge>}<Badge tone={t.status === "Atrasada" ? "danger" : t.status === "Concluída" ? "success" : "blue"}>{t.status}</Badge><div className="row-menu"><button className="icon-button" aria-label={`Mais opções — ${t.titulo}`} onClick={(e) => toggleTaskMenu(t.id, e.currentTarget)}>⋯</button>{menuTaskId === t.id && menuAnchor && <>
       <button type="button" className="menu-backdrop" aria-label="Fechar menu" onClick={closeTaskMenu} />
       <div ref={menuAcessivel.menuRef} className="dropdown-menu" role="menu" onKeyDown={menuAcessivel.aoTeclar} style={{ top: menuAnchor.top, right: menuAnchor.right }}>{t.status !== "Concluída" && <button type="button" role="menuitem" disabled={concluindoId === t.id} onClick={() => { dismissTaskMenu(); concluir(t.id); }}>{concluindoId === t.id ? "Concluindo…" : "Concluir"}</button>}<button type="button" role="menuitem" onClick={() => { dismissTaskMenu(); setEditingTask(t); }}>Editar</button><button type="button" role="menuitem" className="danger" onClick={() => { dismissTaskMenu(); setDeletingTask(t); setDeleteError(""); }}>Excluir</button></div>
     </>}</div></div>)}{shown.length === 0 && <Empty title="Nenhuma tarefa neste mês" text="Cadastre uma tarefa avulsa ou um modelo de recorrência." />}</section>}
@@ -781,8 +789,8 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
 
     <section className="section-head"><div><h2>Modelos recorrentes</h2><p>Tarefas geradas automaticamente todo mês, conforme a periodicidade.</p></div><button className="primary" onClick={abrirNovoModelo}>+ Novo modelo</button></section>
     {modeloError && <div className="notice error" role="alert"><p>{modeloError}</p></div>}
-    <section className="panel table-wrap">
-      <table>
+    <section className="panel table-wrap models-table-wrap">
+      <table className="models-table">
         <thead><tr><th scope="col">Título</th><th scope="col">Tipo</th><th scope="col">Periodicidade</th><th scope="col">Empresa</th><th scope="col">Responsável</th><th scope="col">Situação</th><th scope="col"><span className="sr-only">Ações</span></th></tr></thead>
         <tbody>
           {modelosShown.map((m) => <tr key={m.id}>
@@ -792,12 +800,12 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
             <td>{m.empresa || "Reunião interna"}</td>
             <td>{m.responsaveis.length > 0 ? m.responsaveis.join(", ") : "—"}</td>
             <td><Badge tone={m.ativo ? "success" : "neutral"}>{m.ativo ? "Ativo" : "Inativo"}</Badge></td>
-            <td className="actions">
-              <button className="icon-button" onClick={() => setEditingModelo(m)}>Editar</button>
+            <td className="actions model-actions">
+              <button className="table-action action-edit" onClick={() => setEditingModelo(m)}>Editar</button>
               {m.ativo
-                ? <button className="icon-button" disabled={atualizandoModeloId === m.id} onClick={() => desativarModelo(m.id)}>{atualizandoModeloId === m.id ? "Desativando…" : "Desativar"}</button>
-                : <button className="icon-button" disabled={atualizandoModeloId === m.id} onClick={() => reativarModelo(m.id)}>{atualizandoModeloId === m.id ? "Reativando…" : "Reativar"}</button>}
-              <button className="icon-button" onClick={() => { setDeletingModelo(m); setDeleteModeloError(""); }}>Excluir</button>
+                ? <button className="table-action action-pause" disabled={atualizandoModeloId === m.id} onClick={() => desativarModelo(m.id)}>{atualizandoModeloId === m.id ? "Desativando…" : "Desativar"}</button>
+                : <button className="table-action action-restore" disabled={atualizandoModeloId === m.id} onClick={() => reativarModelo(m.id)}>{atualizandoModeloId === m.id ? "Reativando…" : "Reativar"}</button>}
+              <button className="table-action action-delete" onClick={() => { setDeletingModelo(m); setDeleteModeloError(""); }}>Excluir</button>
             </td>
           </tr>)}
         </tbody>

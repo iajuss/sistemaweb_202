@@ -11,8 +11,11 @@ import { useEffect, useState } from "react";
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 const coresClaras = ["#2d6478", "#5d89a5", "#92b0bf", "#c8d9db", "#d9af72"];
-const coresEscuras = ["#719887", "#96ae93", "#b7c6aa", "#d3d8ba", "#d5ad71"];
-const coresDaltonismo = ["#0072b2", "#56b4e9", "#009e73", "#e69f00", "#cc79a7"];
+// O tema escuro preserva a identidade azul da aplicação. A lista abaixo é
+// compartilhada pelo gráfico e pela legenda, evitando qualquer divergência.
+const coresEscuras = ["#2d6478", "#5d89a5", "#92b0bf", "#c8d9db", "#d9af72"];
+// Okabe-Ito sem dois tons de azul: azul, laranja, verde, magenta e amarelo.
+const coresDaltonismo = ["#0072b2", "#e69f00", "#009e73", "#cc79a7", "#f0e442"];
 
 function coresDoGrafico() {
   if (typeof document === "undefined") return coresClaras;
