@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardEvent, FormEvent, lazy, ReactNode, Suspense, useEffect, useRef, useState } from "react";
+import { ClipboardEvent, FormEvent, KeyboardEvent, lazy, ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { extrairCNPJDoTexto, validarCNPJ } from "../lib/cnpj";
 import {
   atualizarEmpresa, consultarCNPJ, excluirEmpresa,
@@ -8,6 +8,7 @@ import {
   listarTarefas, paraSocioPayload, salvarEmpresa, tratarDivergencia,
   type Divergencia, type Empresa, type SocioPayload, type Tarefa,
 } from "../src/services/portfolio";
+import { AccessibleModal, useAccessibleMenu, useDismissOnViewportChange } from "./accessibility";
 import { Calendar } from "./calendar-view";
 
 // recharts é grande e só é usado na aba "Análise". Carregado sob demanda para
@@ -41,6 +42,14 @@ const proximoMesBrasil = (mes: string) => {
 };
 /** Evita "...obrigatórios.. Tente novamente." quando a mensagem do servidor já termina em ponto. */
 const semPontoFinal = (mensagem: string) => mensagem.replace(/\.+$/, "");
+const navegarRadio = <T extends string>(event: KeyboardEvent<HTMLButtonElement>, opcoes: readonly T[], atual: T, selecionar: (valor: T) => void) => {
+  if (!['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'].includes(event.key)) return;
+  event.preventDefault();
+  const direcao = event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1;
+  const proximo = opcoes[(opcoes.indexOf(atual) + direcao + opcoes.length) % opcoes.length];
+  selecionar(proximo);
+  requestAnimationFrame(() => event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`[data-choice="${proximo}"]`)?.focus());
+};
 
 type CamposCadastraisDraft = {
   cnpj: string; razaoSocial: string; fantasia: string; cidade: string; estado: string; endereco: string;
@@ -113,9 +122,9 @@ function EmpresaPreviewEditModal({ empresa, onClose, onSave }: {
     if (!cnpjValido) return;
     onSave({ ...draft, cnpj: draft.cnpj.replace(/\D/g, "") });
   };
-  return <div className="modal-layer" role="dialog" aria-modal="true" aria-label={`Editar dados de ${empresa.razaoSocial}`}><form className="modal" onSubmit={salvar}><button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button><h2>Editar dados antes de salvar</h2><div className="field-grid">
+  return <AccessibleModal label={`Editar dados de ${empresa.razaoSocial}`} onClose={onClose}><form className="modal" onSubmit={salvar}><button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button><h2>Editar dados antes de salvar</h2><div className="field-grid">
     <CamposCadastraisFields draft={draft} setDraft={setDraft} />
-  </div>{!cnpjValido && <div className="notice error"><p>CNPJ inválido — confira os números antes de salvar.</p></div>}<button className="primary" disabled={!cnpjValido}>Aplicar alterações</button></form></div>;
+  </div>{!cnpjValido && <div className="notice error" role="alert"><p>CNPJ inválido — confira os números antes de salvar.</p></div>}<button className="primary" disabled={!cnpjValido}>Aplicar alterações</button></form></AccessibleModal>;
 }
 const maskCNPJ = (v: string) => v.replace(/\D/g, "").slice(0, 14).replace(/(\d{2})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1/$2").replace(/(\d{4})(\d{1,2})$/, "$1-$2");
 
@@ -159,17 +168,17 @@ function EmpresaEditModal({ empresa, perfis, onClose, onSaved }: {
       setSaving(false);
     }
   };
-  return <div className="modal-layer" role="dialog" aria-modal="true" aria-label={`Editar ${empresa.razaoSocial}`}><form className="modal" onSubmit={save}><button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button><h2>Editar empresa</h2><div className="field-grid">
+  return <AccessibleModal label={`Editar ${empresa.razaoSocial}`} onClose={onClose}><form className="modal" onSubmit={save}><button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button><h2>Editar empresa</h2><div className="field-grid">
     <CamposCadastraisFields draft={draft} setDraft={setDraft} />
     <label className="full">Responsável interno<select value={draft.responsavelId} onChange={(e) => setDraft({ ...draft, responsavelId: e.target.value })}><option value="">Sem responsável</option>{perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label>
     <label className="full">Observações internas<textarea value={draft.observacoes} onChange={(e) => setDraft({ ...draft, observacoes: e.target.value })} /></label>
-  </div>{!cnpjValido && <div className="notice error"><p>CNPJ inválido — confira os números antes de salvar.</p></div>}{error && <div className="notice error"><p>{error}</p></div>}<button className="primary" disabled={saving || !cnpjValido}>{saving ? "Salvando…" : "Salvar alterações"}</button></form></div>;
+  </div>{!cnpjValido && <div className="notice error" role="alert"><p>CNPJ inválido — confira os números antes de salvar.</p></div>}{error && <div className="notice error" role="alert"><p>{error}</p></div>}<button className="primary" disabled={saving || !cnpjValido}>{saving ? "Salvando…" : "Salvar alterações"}</button></form></AccessibleModal>;
 }
 
 function ConfirmarExclusaoEmpresa({ empresa, saving, error, onClose, onConfirm }: {
   empresa: Empresa; saving: boolean; error: string; onClose: () => void; onConfirm: () => void;
 }) {
-  return <div className="modal-layer" role="dialog" aria-modal="true" aria-label="Confirmar exclusão"><div className="modal"><button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button><h2>Excluir empresa</h2><p>Tem certeza que deseja excluir <strong>{empresa.razaoSocial}</strong> da carteira? Divergências, tarefas e modelos de recorrência associados a ela também serão removidos. Essa ação não pode ser desfeita.</p>{error && <div className="notice error"><p>{error}</p></div>}<button type="button" className="primary danger" onClick={onConfirm} disabled={saving}>{saving ? "Excluindo…" : "Excluir definitivamente"}</button></div></div>;
+  return <AccessibleModal label="Confirmar exclusão" onClose={onClose}><div className="modal"><button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button><h2>Excluir empresa</h2><p>Tem certeza que deseja excluir <strong>{empresa.razaoSocial}</strong> da carteira? Divergências, tarefas e modelos de recorrência associados a ela também serão removidos. Essa ação não pode ser desfeita.</p>{error && <div className="notice error" role="alert"><p>{error}</p></div>}<button type="button" className="primary danger" onClick={onConfirm} disabled={saving}>{saving ? "Excluindo…" : "Excluir definitivamente"}</button></div></AccessibleModal>;
 }
 
 function Badge({ children, tone = "neutral" }: { children: ReactNode; tone?: string }) {
@@ -184,16 +193,17 @@ function statusTone(status: string): "success" | "warning" | "danger" | "neutral
 }
 
 function Card({ title, value, helper, icon }: { title: string; value: string | number; helper: string; icon: string }) {
-  return <article className="metric-card"><span className="metric-icon">{icon}</span><p>{title}</p><strong>{value}</strong><small>{helper}</small></article>;
+  return <article className="metric-card"><span className="metric-icon" aria-hidden="true">{icon}</span><p>{title}</p><strong>{value}</strong><small>{helper}</small></article>;
 }
 
 function Empty({ title = "Nenhum resultado encontrado", text = "Ajuste seus filtros ou tente novamente." }) {
-  return <div className="empty"><span>⌕</span><strong>{title}</strong><p>{text}</p></div>;
+  return <div className="empty"><span aria-hidden="true">⌕</span><strong>{title}</strong><p>{text}</p></div>;
 }
 
 export function HomeClient({ userName, userEmail }: { userName: string; userEmail: string }) {
   const [view, setView] = useState<View>("Visão geral");
   const [menuOpen, setMenuOpen] = useState(false);
+  const mobileMenuRef = useRef<HTMLElement>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [companies, setCompanies] = useState<Empresa[]>([]);
@@ -224,6 +234,39 @@ export function HomeClient({ userName, userEmail }: { userName: string; userEmai
     setDarkMode(window.localStorage.getItem("controle-carteira-theme") === "dark");
   }, []);
 
+  useEffect(() => {
+    if (!menuOpen) return;
+    const elementoAnterior = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const overflowAnterior = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const frame = requestAnimationFrame(() => mobileMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus());
+    const aoTeclar = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const itens = Array.from(mobileMenuRef.current?.querySelectorAll<HTMLButtonElement>("button:not([disabled])") ?? []);
+      if (itens.length === 0) return;
+      const primeiro = itens[0];
+      const ultimo = itens.at(-1)!;
+      if (event.shiftKey && document.activeElement === primeiro) {
+        event.preventDefault();
+        ultimo.focus();
+      } else if (!event.shiftKey && document.activeElement === ultimo) {
+        event.preventDefault();
+        primeiro.focus();
+      }
+    };
+    document.addEventListener("keydown", aoTeclar);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", aoTeclar);
+      document.body.style.overflow = overflowAnterior;
+      elementoAnterior?.focus();
+    };
+  }, [menuOpen]);
+
   const logout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     window.location.href = "/login";
@@ -246,12 +289,13 @@ export function HomeClient({ userName, userEmail }: { userName: string; userEmai
   );
 
   return <main className={`app-shell ${sidebarCollapsed ? "sidebar-is-collapsed" : ""}`}>
-    <aside className={`sidebar ${menuOpen ? "open" : ""} ${sidebarCollapsed ? "collapsed" : ""}`} aria-label="Navegação principal">
+    <a className="skip-link" href="#conteudo-principal">Pular para o conteúdo</a>
+    <aside ref={mobileMenuRef} className={`sidebar ${menuOpen ? "open" : ""} ${sidebarCollapsed ? "collapsed" : ""}`} aria-label="Navegação principal">
       <div className="brand">
         <div className="brand-identity"><span className="brand-mark">▣</span><span className="brand-name">Controle de carteira</span></div>
         <button className="sidebar-toggle" type="button" title={sidebarCollapsed ? "Expandir menu" : "Recolher menu"} aria-label={sidebarCollapsed ? "Expandir navegação" : "Recolher navegação"} onClick={() => setSidebarCollapsed((current) => !current)}><span className="sidebar-glyph" aria-hidden="true" /></button>
       </div>
-      <nav>{nav.map((item) => <button key={item.label} title={sidebarCollapsed ? item.label : undefined} className={view === item.label ? "active" : ""} onClick={() => { setView(item.label); setMenuOpen(false); }}><i>{item.icon}</i><span className="nav-label">{item.label}</span></button>)}</nav>
+      <nav>{nav.map((item) => <button key={item.label} title={sidebarCollapsed ? item.label : undefined} className={view === item.label ? "active" : ""} onClick={() => { setView(item.label); setMenuOpen(false); }}><i aria-hidden="true">{item.icon}</i><span className="nav-label">{item.label}</span></button>)}</nav>
       <div className="sidebar-footer"><button className={`sidebar-settings ${view === "Configurações" ? "active" : ""}`} aria-label="Configurações" title="Configurações" onClick={() => { setView("Configurações"); setMenuOpen(false); }}><span className="settings-icon" aria-hidden="true">⚙</span><span className="nav-label">Configurações</span></button><button className="sidebar-logout" type="button" title="Sair da conta" onClick={logout}><span className="logout-icon" aria-hidden="true" /><span className="nav-label">Sair da conta</span></button></div>
     </aside>
     {menuOpen && <button className="backdrop" aria-label="Fechar menu" onClick={() => setMenuOpen(false)} />}
@@ -260,15 +304,15 @@ export function HomeClient({ userName, userEmail }: { userName: string; userEmai
         <div className="topbar-title"><button className="menu-button" aria-label="Abrir menu" onClick={() => setMenuOpen(true)}>☰</button><div><p className="eyebrow">Gestão contábil</p><h1>{view}</h1></div></div>
         <div className="header-actions"><span className="header-divider" aria-hidden="true" /><button className={`theme-button ${darkMode ? "active" : ""}`} type="button" aria-label="Alternar entre modo claro e escuro" aria-pressed={darkMode} title="Alternar modo claro e escuro" onClick={toggleTheme}><span aria-hidden="true">☼</span><span aria-hidden="true">☾</span></button><div className="logo-placeholder"><span>▣</span> Logo do cliente</div></div>
       </header>
-      <div className="page-content">
-        {loadError && <div className="notice error"><strong>Não foi possível carregar os dados</strong><p>Tente atualizar a página.</p></div>}
+      <div id="conteudo-principal" className="page-content" tabIndex={-1}>
+        {loadError && <div className="notice error" role="alert"><strong>Não foi possível carregar os dados</strong><p>Tente atualizar a página.</p></div>}
         {content}
       </div>
     </section>
   </main>;
 }
 
-function Loading() { return <div className="loading-grid">{Array.from({ length: 8 }).map((_, i) => <div className="skeleton" key={i} />)}</div>; }
+function Loading() { return <div className="loading-grid" role="status" aria-live="polite" aria-label="Carregando dados">{Array.from({ length: 8 }).map((_, i) => <div className="skeleton" key={i} />)}</div>; }
 
 function Settings({ userName, userEmail }: { userName: string; userEmail: string }) {
   const [senha, setSenha] = useState("");
@@ -321,9 +365,9 @@ function Settings({ userName, userEmail }: { userName: string; userEmail: string
     <section className="section-head settings-heading"><div><p className="eyebrow">Conta e acessibilidade</p><h2>Configurações</h2><p>Gerencie suas informações, segurança e preferências de visualização.</p></div></section>
     <section className="settings-grid">
       <article className="panel account-card"><div className="account-avatar">{userName.slice(0, 2).toUpperCase()}</div><div><p className="settings-label">Conta conectada</p><h3>{userName}</h3><p>{userEmail}</p></div></article>
-      <article className="panel settings-panel"><div className="settings-panel-head"><span>◉</span><div><h3>Redefinir senha</h3><p>Escolha uma nova senha com pelo menos 8 caracteres.</p></div></div><form className="settings-form" onSubmit={updatePassword}><label>Nova senha<input type="password" autoComplete="new-password" minLength={8} required value={senha} onChange={(event) => setSenha(event.target.value)} /></label><label>Confirmar nova senha<input type="password" autoComplete="new-password" minLength={8} required value={confirmacao} onChange={(event) => setConfirmacao(event.target.value)} /></label>{message && <p className={message.includes("sucesso") ? "settings-message success" : "settings-message error"}>{message}</p>}<button className="primary" disabled={savingPassword}>{savingPassword ? "Atualizando…" : "Atualizar senha"}</button></form></article>
-      <article className="panel settings-panel"><div className="settings-panel-head"><span>◌</span><div><h3>Modo daltonismo</h3><p>Usa a paleta Okabe–Ito e indicadores textuais para não depender apenas de vermelho e verde.</p></div></div><div className="choice-group" role="radiogroup" aria-label="Modo daltonismo"><button type="button" className={vision === "default" ? "selected" : ""} role="radio" aria-checked={vision === "default"} onClick={() => applyVision("default")}><i className="palette-default" />Padrão</button><button type="button" className={vision === "colorblind" ? "selected" : ""} role="radio" aria-checked={vision === "colorblind"} onClick={() => applyVision("colorblind")}><i className="palette-colorblind" />Daltonismo</button></div></article>
-      <article className="panel settings-panel"><div className="settings-panel-head"><span>Aa</span><div><h3>Tamanho da fonte</h3><p>Ajuste a leitura do sistema neste dispositivo.</p></div></div><div className="choice-group font-choices" role="radiogroup" aria-label="Tamanho da fonte">{([ ["small", "Menor"], ["normal", "Padrão"], ["large", "Maior"] ] as const).map(([value, label]) => <button type="button" key={value} className={fontSize === value ? "selected" : ""} role="radio" aria-checked={fontSize === value} onClick={() => applyFontSize(value)}><i className={`font-${value}`}>A</i>{label}</button>)}</div></article>
+      <article className="panel settings-panel"><div className="settings-panel-head"><span aria-hidden="true">◉</span><div><h3>Redefinir senha</h3><p>Escolha uma nova senha com pelo menos 8 caracteres.</p></div></div><form className="settings-form" onSubmit={updatePassword}><label>Nova senha<input type="password" autoComplete="new-password" minLength={8} required value={senha} onChange={(event) => setSenha(event.target.value)} /></label><label>Confirmar nova senha<input type="password" autoComplete="new-password" minLength={8} required value={confirmacao} onChange={(event) => setConfirmacao(event.target.value)} /></label>{message && <p className={message.includes("sucesso") ? "settings-message success" : "settings-message error"} role={message.includes("sucesso") ? "status" : "alert"}>{message}</p>}<button className="primary" disabled={savingPassword}>{savingPassword ? "Atualizando…" : "Atualizar senha"}</button></form></article>
+      <article className="panel settings-panel"><div className="settings-panel-head"><span aria-hidden="true">◌</span><div><h3>Modo daltonismo</h3><p>Usa a paleta Okabe–Ito e indicadores textuais para não depender apenas de vermelho e verde.</p></div></div><div className="choice-group" role="radiogroup" aria-label="Modo daltonismo"><button type="button" data-choice="default" tabIndex={vision === "default" ? 0 : -1} className={vision === "default" ? "selected" : ""} role="radio" aria-checked={vision === "default"} onKeyDown={(event) => navegarRadio(event, ["default", "colorblind"], vision, applyVision)} onClick={() => applyVision("default")}><i className="palette-default" aria-hidden="true" />Padrão</button><button type="button" data-choice="colorblind" tabIndex={vision === "colorblind" ? 0 : -1} className={vision === "colorblind" ? "selected" : ""} role="radio" aria-checked={vision === "colorblind"} onKeyDown={(event) => navegarRadio(event, ["default", "colorblind"], vision, applyVision)} onClick={() => applyVision("colorblind")}><i className="palette-colorblind" aria-hidden="true" />Daltonismo</button></div></article>
+      <article className="panel settings-panel"><div className="settings-panel-head"><span aria-hidden="true">Aa</span><div><h3>Tamanho da fonte</h3><p>Ajuste a leitura do sistema neste dispositivo.</p></div></div><div className="choice-group font-choices" role="radiogroup" aria-label="Tamanho da fonte">{([ ["small", "Menor"], ["normal", "Padrão"], ["large", "Maior"] ] as const).map(([value, label]) => <button type="button" key={value} data-choice={value} tabIndex={fontSize === value ? 0 : -1} className={fontSize === value ? "selected" : ""} role="radio" aria-checked={fontSize === value} onKeyDown={(event) => navegarRadio(event, ["small", "normal", "large"], fontSize, applyFontSize)} onClick={() => applyFontSize(value)}><i className={`font-${value}`} aria-hidden="true">A</i>{label}</button>)}</div></article>
     </section>
   </>;
 }
@@ -337,9 +381,9 @@ function Overview({ companies, issues, tasks, weekTasks, go }: { companies: Empr
     <section className="metrics"><Card title="Empresas na carteira" value={companies.length} helper={`${active} com situação ativa`} icon="▦" /><Card title="Divergências pendentes" value={issues.filter((i) => i.status === "Pendente").length} helper="Requerem uma decisão" icon="◇" /><Card title="Vencimentos da semana" value={due} helper="Inclui tarefas em atraso" icon="◷" /></section>
     <section className="section-head"><div><h2>Atalhos da operação</h2><p>Acesse rapidamente os principais fluxos.</p></div></section>
     <section className="quick-grid">
-      {[ ["Onboarding", "＋", "Inclua empresas com dados pré-preenchidos por CNPJ."], ["Auditoria", "◈", "Revise divergências identificadas na base."], ["Análise", "▥", "Entenda a composição da sua carteira."], ["Calendário", "□", "Acompanhe obrigações e prazos recorrentes."] ].map(([title, icon, text]) => <button className="quick-card" key={title} onClick={() => go(title as View)}><span>{icon}</span><strong>{title}</strong><p>{text}</p><em>→</em></button>)}
+      {[ ["Onboarding", "＋", "Inclua empresas com dados pré-preenchidos por CNPJ."], ["Auditoria", "◈", "Revise divergências identificadas na base."], ["Análise", "▥", "Entenda a composição da sua carteira."], ["Calendário", "□", "Acompanhe obrigações e prazos recorrentes."] ].map(([title, icon, text]) => <button className="quick-card" key={title} onClick={() => go(title as View)}><span aria-hidden="true">{icon}</span><strong>{title}</strong><p>{text}</p><em aria-hidden="true">→</em></button>)}
     </section>
-    <section className="two-columns"><article className="panel"><div className="panel-title"><div><h3>Próximos vencimentos</h3><p>Prioridades dos próximos dias</p></div><button onClick={() => go("Calendário")}>Ver calendário</button></div>{tasks.slice(0, 4).map((t) => <div className="task-line" key={t.id}><time>{formatDate(t.vencimento)}</time><div><strong>{t.titulo}</strong><small>{t.empresa || "Reunião interna"} · {t.responsavel}</small></div><Badge tone={t.status === "Atrasada" ? "danger" : "blue"}>{t.status}</Badge></div>)}</article><article className="panel"><div className="panel-title"><div><h3>Auditoria em foco</h3><p>Ocorrências pendentes por prioridade</p></div><button onClick={() => go("Auditoria")}>Revisar</button></div>{issues.filter((i) => i.status === "Pendente").slice(0, 4).map((i) => <div className="task-line" key={i.id}><span className="issue-dot">!</span><div><strong>{i.empresa}</strong><small>{i.tipo}</small></div><Badge tone="warning">Pendente</Badge></div>)}</article></section>
+    <section className="two-columns"><article className="panel"><div className="panel-title"><div><h3>Próximos vencimentos</h3><p>Prioridades dos próximos dias</p></div><button onClick={() => go("Calendário")}>Ver calendário</button></div>{tasks.slice(0, 4).map((t) => <div className="task-line" key={t.id}><time>{formatDate(t.vencimento)}</time><div><strong>{t.titulo}</strong><small>{t.empresa || "Reunião interna"} · {t.responsavel}</small></div><Badge tone={t.status === "Atrasada" ? "danger" : "blue"}>{t.status}</Badge></div>)}</article><article className="panel"><div className="panel-title"><div><h3>Auditoria em foco</h3><p>Ocorrências pendentes por prioridade</p></div><button onClick={() => go("Auditoria")}>Revisar</button></div>{issues.filter((i) => i.status === "Pendente").slice(0, 4).map((i) => <div className="task-line" key={i.id}><span className="issue-dot" aria-hidden="true">!</span><div><strong>{i.empresa}</strong><small>{i.tipo}</small></div><Badge tone="warning">Pendente</Badge></div>)}</article></section>
   </>;
 }
 
@@ -351,20 +395,24 @@ function Onboarding({ companies, setCompanies, perfis, userName, setIssues }: {
   const [toastVisible, setToastVisible] = useState(false);
   useEffect(() => {
     if (!toastVisible) return;
-    const id = setTimeout(() => setToastVisible(false), 3000);
+    const id = setTimeout(() => setToastVisible(false), 6000);
     return () => clearTimeout(id);
   }, [toastVisible]);
   const [saving, setSaving] = useState(false); const [saveError, setSaveError] = useState("");
   const [responsavelId, setResponsavelId] = useState(""); const [observacoes, setObservacoes] = useState("");
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number } | null>(null);
+  const dismissMenu = () => { setMenuOpenId(null); setMenuAnchor(null); };
+  const menuAcessivel = useAccessibleMenu(Boolean(menuOpenId), dismissMenu);
+  useDismissOnViewportChange(Boolean(menuOpenId), menuAcessivel.fechar);
   const toggleMenu = (id: string, target: HTMLElement) => {
-    if (menuOpenId === id) { setMenuOpenId(null); setMenuAnchor(null); return; }
+    if (menuOpenId === id) { menuAcessivel.fechar(); return; }
+    menuAcessivel.rememberOpener(target);
     const rect = target.getBoundingClientRect();
     setMenuAnchor({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
     setMenuOpenId(id);
   };
-  const closeMenu = () => { setMenuOpenId(null); setMenuAnchor(null); };
+  const closeMenu = menuAcessivel.fechar;
   const [editing, setEditing] = useState<Empresa | null>(null);
   const [editingPreview, setEditingPreview] = useState(false);
   const [deleting, setDeleting] = useState<Empresa | null>(null);
@@ -436,14 +484,14 @@ function Onboarding({ companies, setCompanies, perfis, userName, setIssues }: {
   const listed = companies.filter((c) => `${c.razaoSocial} ${c.fantasia} ${c.cnpj}`.toLowerCase().includes(query.toLowerCase()) || (queryDigits.length > 0 && c.cnpj.replace(/\D/g, "").includes(queryDigits)));
   return <>
     <section className="section-head"><div><h2>Novo cadastro</h2><p>Consulte o CNPJ para começar com os dados preenchidos.</p></div></section>
-    <section className="panel onboarding"><form onSubmit={lookup}><label htmlFor="cnpj">CNPJ da empresa</label><div className="search-row"><input id="cnpj" value={cnpj} onChange={(e) => setCnpj(maskCNPJ(e.target.value))} onPaste={(e: ClipboardEvent<HTMLInputElement>) => { e.preventDefault(); setCnpj(maskCNPJ(extrairCNPJDoTexto(e.clipboardData.getData("text")))); }} placeholder="00.000.000/0000-00" inputMode="numeric" /><button className="primary" disabled={state === "loading"}>{state === "loading" ? "Consultando…" : "Consultar"}</button></div><small>Consulta via BrasilAPI.</small></form>{state === "error" && <div className="notice error"><strong>Não encontramos esse CNPJ</strong><p>{message}</p></div>}</section>
+    <section className="panel onboarding"><form onSubmit={lookup}><label htmlFor="cnpj">CNPJ da empresa</label><div className="search-row"><input id="cnpj" value={cnpj} onChange={(e) => setCnpj(maskCNPJ(e.target.value))} onPaste={(e: ClipboardEvent<HTMLInputElement>) => { e.preventDefault(); setCnpj(maskCNPJ(extrairCNPJDoTexto(e.clipboardData.getData("text")))); }} placeholder="00.000.000/0000-00" inputMode="numeric" /><button className="primary" disabled={state === "loading"}>{state === "loading" ? "Consultando…" : "Consultar"}</button></div><small>Consulta via BrasilAPI.</small></form>{state === "error" && <div className="notice error" role="alert"><strong>Não encontramos esse CNPJ</strong><p>{message}</p></div>}</section>
     {result && <section className="detail-card"><div className="detail-heading"><div><Badge tone={statusTone(result.status)}>{result.status}</Badge><h2>{result.razaoSocial}</h2><p>{result.fantasia} · CNPJ {result.cnpj}</p></div><div className="detail-actions"><button type="button" className="secondary" onClick={() => setEditingPreview(true)}>Editar dados</button><button className="primary" onClick={save} disabled={saving}>{saving ? "Salvando…" : "Salvar na carteira"}</button></div></div>
-    {editingPreview && result && <EmpresaPreviewEditModal empresa={result} onClose={() => setEditingPreview(false)} onSave={(dados) => { setResult({ ...result, ...dados, status: dados.status as Empresa["status"], porte: dados.porte as Empresa["porte"], socios: dados.socios.map(formatarSocio) }); setEditingPreview(false); }} />}{saveError && <div className="notice error"><p>{saveError}</p></div>}<div className="details"><div><span>Endereço</span><strong>{result.endereco}, {result.cidade}/{result.estado}</strong></div><div><span>CNAE principal</span><strong>{result.cnaeCodigo || result.cnae ? `${result.cnaeCodigo} · ${result.cnae}` : "Não informado pela consulta"}</strong></div><div><span>Porte</span><strong>{result.porte}</strong></div><div><span>Responsável interno</span><select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)}>{perfis.length > 0 ? <><option value="">Sem responsável</option>{perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</> : <option value="">{userName}</option>}</select></div><div className="full"><details className="socios-dropdown"><summary>Quadro societário{result.socios.length > 0 ? ` (${result.socios.length})` : ""}</summary><div className="socios-list">{result.socios.length > 0 ? result.socios.map((s, i) => <p key={i} className="static-value">{s}</p>) : <p className="static-value">Nenhum sócio informado.</p>}</div></details></div><div className="full"><label htmlFor="obs">Observações internas</label><textarea id="obs" value={observacoes} onChange={(e) => setObservacoes(e.target.value)} placeholder="Inclua orientações para o time responsável…" /></div></div></section>}
-    {toastVisible && <div className="toast"><span>✓ {message}</span><button type="button" className="toast-close" aria-label="Fechar aviso" onClick={() => setToastVisible(false)}>×</button></div>}
+    {editingPreview && result && <EmpresaPreviewEditModal empresa={result} onClose={() => setEditingPreview(false)} onSave={(dados) => { setResult({ ...result, ...dados, status: dados.status as Empresa["status"], porte: dados.porte as Empresa["porte"], socios: dados.socios.map(formatarSocio) }); setEditingPreview(false); }} />}{saveError && <div className="notice error" role="alert"><p>{saveError}</p></div>}<div className="details"><div><span>Endereço</span><strong>{result.endereco}, {result.cidade}/{result.estado}</strong></div><div><span>CNAE principal</span><strong>{result.cnaeCodigo || result.cnae ? `${result.cnaeCodigo} · ${result.cnae}` : "Não informado pela consulta"}</strong></div><div><span>Porte</span><strong>{result.porte}</strong></div><div><span>Responsável interno</span><select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)}>{perfis.length > 0 ? <><option value="">Sem responsável</option>{perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</> : <option value="">{userName}</option>}</select></div><div className="full"><details className="socios-dropdown"><summary>Quadro societário{result.socios.length > 0 ? ` (${result.socios.length})` : ""}</summary><div className="socios-list">{result.socios.length > 0 ? result.socios.map((s, i) => <p key={i} className="static-value">{s}</p>) : <p className="static-value">Nenhum sócio informado.</p>}</div></details></div><div className="full"><label htmlFor="obs">Observações internas</label><textarea id="obs" value={observacoes} onChange={(e) => setObservacoes(e.target.value)} placeholder="Inclua orientações para o time responsável…" /></div></div></section>}
+    {toastVisible && <div className="toast" role="status" aria-live="polite"><span>✓ {message}</span><button type="button" className="toast-close" aria-label="Fechar aviso" onClick={() => setToastVisible(false)}>×</button></div>}
     <section className="section-head table-head"><div><h2>Cadastros na carteira</h2><p>{companies.length} empresas registradas</p></div><input aria-label="Buscar empresa" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por empresa ou CNPJ" /></section>
-    <section className="panel table-wrap"><table><thead><tr><th>Empresa</th><th>CNPJ</th><th>Localidade</th><th>Situação</th><th>Responsável</th><th></th></tr></thead><tbody>{listed.map((c) => <tr key={c.id}><td><strong>{c.razaoSocial}</strong><small>{c.fantasia}</small></td><td>{c.cnpj}</td><td>{c.cidade}/{c.estado}</td><td><Badge tone={statusTone(c.status)}>{c.status}</Badge></td><td>{c.responsavel}</td><td className="row-menu"><button className="icon-button" aria-label={`Mais opções — ${c.razaoSocial}`} onClick={(e) => toggleMenu(c.id, e.currentTarget)}>⋯</button>{menuOpenId === c.id && menuAnchor && <>
+    <section className="panel table-wrap"><table><thead><tr><th scope="col">Empresa</th><th scope="col">CNPJ</th><th scope="col">Localidade</th><th scope="col">Situação</th><th scope="col">Responsável</th><th scope="col"><span className="sr-only">Ações</span></th></tr></thead><tbody>{listed.map((c) => <tr key={c.id}><td><strong>{c.razaoSocial}</strong><small>{c.fantasia}</small></td><td>{c.cnpj}</td><td>{c.cidade}/{c.estado}</td><td><Badge tone={statusTone(c.status)}>{c.status}</Badge></td><td>{c.responsavel}</td><td className="row-menu"><button className="icon-button" aria-label={`Mais opções — ${c.razaoSocial}`} onClick={(e) => toggleMenu(c.id, e.currentTarget)}>⋯</button>{menuOpenId === c.id && menuAnchor && <>
       <button type="button" className="menu-backdrop" aria-label="Fechar menu" onClick={closeMenu} />
-      <div className="dropdown-menu" role="menu" style={{ top: menuAnchor.top, right: menuAnchor.right }}><button type="button" role="menuitem" onClick={() => openEdit(c)}>Editar</button><button type="button" role="menuitem" className="danger" onClick={() => { closeMenu(); setDeleting(c); setDeleteError(""); }}>Excluir</button></div>
+      <div ref={menuAcessivel.menuRef} className="dropdown-menu" role="menu" onKeyDown={menuAcessivel.aoTeclar} style={{ top: menuAnchor.top, right: menuAnchor.right }}><button type="button" role="menuitem" onClick={() => openEdit(c)}>Editar</button><button type="button" role="menuitem" className="danger" onClick={() => { dismissMenu(); setDeleting(c); setDeleteError(""); }}>Excluir</button></div>
     </>}</td></tr>)}</tbody></table>{listed.length === 0 && <Empty />}</section>
     {editing && <EmpresaEditModal empresa={editing} perfis={perfis} onClose={() => setEditing(null)} onSaved={handleEmpresaSalva} />}
     {deleting && <ConfirmarExclusaoEmpresa empresa={deleting} saving={deleteSaving} error={deleteError} onClose={() => setDeleting(null)} onConfirm={confirmDelete} />}
@@ -573,11 +621,11 @@ function ResolverDuplicidade({ divergencia, issues, companies, onClose, onResolv
     }
   };
 
-  return <div className="modal-layer" role="dialog" aria-modal="true" aria-label="Resolver duplicidade"><div className="modal duplicidade-modal">
+  return <AccessibleModal label="Resolver duplicidade" onClose={onClose}><div className="modal duplicidade-modal">
     <button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button>
     <h2>Possível empresa duplicada</h2>
     <p>Estes cadastros parecem ser a mesma empresa. Compare os dados e exclua o(s) registro(s) duplicado(s) para manter a carteira consistente.</p>
-    {error && <div className="notice error"><p>{error}</p></div>}
+    {error && <div className="notice error" role="alert"><p>{error}</p></div>}
     {cartoes.length <= 1 && idsDoCluster.size > cartoes.length && <div className="notice"><p>As outras empresas deste grupo não estão mais na carteira — esta divergência será limpa na próxima revalidação.</p></div>}
     <div className="duplicidade-compare">{cartoes.map((e) => { const divs = divergenciasPendentes(e.id, issues); return <article key={e.id} className="duplicidade-card">
       {cartoes.length > 1 && <span className={`badge success duplicidade-badge${divs === melhorDivergencias && completudeCadastro(e) === melhorCompletude ? "" : " duplicidade-badge-oculto"}`}>Cadastro mais confiável</span>}
@@ -598,7 +646,7 @@ function ResolverDuplicidade({ divergencia, issues, companies, onClose, onResolv
       <button type="button" className="primary danger" onClick={() => { setError(""); setEmpresaParaExcluir(e); }} disabled={excluindoId !== null}>{excluindoId === e.id ? "Excluindo…" : "Excluir esta empresa"}</button>
     </article>; })}</div>
     {empresaParaExcluir && <ConfirmarExclusaoEmpresa empresa={empresaParaExcluir} saving={excluindoId === empresaParaExcluir.id} error={error} onClose={() => setEmpresaParaExcluir(null)} onConfirm={async () => { if (await excluir(empresaParaExcluir.id)) setEmpresaParaExcluir(null); }} />}
-  </div></div>;
+  </div></AccessibleModal>;
 }
 
 function Audit({ issues, setIssues, companies, setCompanies, perfis }: {
@@ -719,10 +767,10 @@ function Audit({ issues, setIssues, companies, setCompanies, perfis }: {
         <Badge tone="warning">{issues.filter((i) => i.status === "Pendente").length} pendentes</Badge>
       </div>
     </section>
-    {actionError && <div className="notice error"><p>{actionError}</p></div>}
+    {actionError && <div className="notice error" role="alert"><p>{actionError}</p></div>}
     <section className="audit-summary">{types.slice(1).map((t) => <article key={t}><span>{t === "CNPJ inválido" ? "#" : "!"}</span><strong>{contarTipo(t)}</strong><p>{t}</p></article>)}</section>
     <section className="filters"><label>Tipo<select value={type} onChange={(e) => setType(e.target.value)}>{types.map((t) => <option key={t}>{t}</option>)}</select></label><label>Tratamento<select value={status} onChange={(e) => setStatus(e.target.value)}>{["Todos", "Pendente", "Revisado", "Ignorado"].map((s) => <option key={s}>{s}</option>)}</select></label></section>
-    <section className="panel table-wrap"><table className="audit-table"><thead><tr><th>Empresa</th><th>Ocorrência</th><th>Valor atual</th><th>Sugestão</th><th>Status</th><th>Ações</th></tr></thead><tbody>{filtered.map((i) => { const empresaDaLinha = companies.find((c) => c.id === i.empresaId); const tamanhoGrupo = tamanhoPorRepresentante.get(i.id); return <tr key={i.id}><td><strong>{i.empresa}</strong></td><td><Badge tone="neutral">{i.tipo}</Badge></td><td>{tamanhoGrupo && tamanhoGrupo > 2 ? `${tamanhoGrupo} cadastros com nome parecido entre si` : i.atual}{i.status === "Revisado" && i.sugerido && <><br /><small className="static-value">corrigido para: {i.sugerido}</small></>}</td><td>{i.sugerido || "—"}</td><td><Badge tone={i.status === "Pendente" ? "warning" : i.status === "Revisado" ? "success" : "neutral"}>{i.status}</Badge><br /><small className="static-value">{formatDataHoraBrasilia(i.resolvidoEm ?? i.detectadoEm)}</small></td><td className="actions">
+    <section className="panel table-wrap"><table className="audit-table"><thead><tr><th scope="col">Empresa</th><th scope="col">Ocorrência</th><th scope="col">Valor atual</th><th scope="col">Sugestão</th><th scope="col">Status</th><th scope="col">Ações</th></tr></thead><tbody>{filtered.map((i) => { const empresaDaLinha = companies.find((c) => c.id === i.empresaId); const tamanhoGrupo = tamanhoPorRepresentante.get(i.id); return <tr key={i.id}><td><strong>{i.empresa}</strong></td><td><Badge tone="neutral">{i.tipo}</Badge></td><td>{tamanhoGrupo && tamanhoGrupo > 2 ? `${tamanhoGrupo} cadastros com nome parecido entre si` : i.atual}{i.status === "Revisado" && i.sugerido && <><br /><small className="static-value">corrigido para: {i.sugerido}</small></>}</td><td>{i.sugerido || "—"}</td><td><Badge tone={i.status === "Pendente" ? "warning" : i.status === "Revisado" ? "success" : "neutral"}>{i.status}</Badge><br /><small className="static-value">{formatDataHoraBrasilia(i.resolvidoEm ?? i.detectadoEm)}</small></td><td className="actions">
       {i.status !== "Revisado" ? <>
         {i.tipo === "Duplicidade" && <button onClick={() => setDuplicidade(i)} disabled={updatingId === i.id}>Resolver duplicidade</button>}
         {TIPOS_CORRIGIVEIS_NO_CADASTRO.has(i.tipo) && <button onClick={() => empresaDaLinha && setCorrigindo(empresaDaLinha)} disabled={updatingId === i.id || !empresaDaLinha}>Corrigir cadastro</button>}
@@ -782,14 +830,14 @@ function ChartCard({ title, children, hint }: { title: string; children: ReactNo
 function CnaeRanking({ data, onSelect }: { data: { name: string; value: number }[]; onSelect: (name: string) => void }) {
   const maiorValor = Math.max(...data.map((item) => item.value), 1);
   return <div className="cnae-ranking-scroll"><div className="cnae-ranking" role="list" aria-label="Ranking de CNAEs">
-    {data.map((item, index) => <button type="button" className="cnae-ranking-item" role="listitem" key={item.name} onClick={() => onSelect(item.name)} aria-label={`Ver empresas do CNAE ${item.name}`}>
+    {data.map((item, index) => <li key={item.name}><button type="button" className="cnae-ranking-item" onClick={() => onSelect(item.name)} aria-label={`Ver empresas do CNAE ${item.name}`}>
       <span className="cnae-ranking-position">{String(index + 1).padStart(2, "0")}</span><span className="cnae-ranking-content"><strong>{item.name}</strong><span className="cnae-ranking-track" aria-hidden="true"><i style={{ width: `${Math.max((item.value / maiorValor) * 100, 5)}%` }} /></span></span><span className="cnae-ranking-value"><strong>{item.value}</strong><small>{item.value === 1 ? "empresa" : "empresas"}</small></span>
-    </button>)}
+    </button></li>)}
   </div></div>;
 }
 
 function SegmentoModal({ titulo, empresas, onClose }: { titulo: string; empresas: Empresa[]; onClose: () => void }) {
-  return <div className="modal-layer" role="dialog" aria-modal="true" aria-label={`Empresas — ${titulo}`}><div className="modal segmento-modal"><button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button><h2>{titulo}</h2><p>{empresas.length} {empresas.length === 1 ? "empresa encontrada" : "empresas encontradas"}</p>
+  return <AccessibleModal label={`Empresas — ${titulo}`} onClose={onClose}><div className="modal segmento-modal"><button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button><h2>{titulo}</h2><p>{empresas.length} {empresas.length === 1 ? "empresa encontrada" : "empresas encontradas"}</p>
     {empresas.length === 0 ? <Empty title="Nenhuma empresa aqui" text="Não há cadastros correspondentes a este grupo." /> : <div className="segmento-list">{empresas.map((e) => <article key={e.id} className="segmento-card">
       <div className="segmento-card-head"><strong>{e.razaoSocial}</strong><Badge tone={statusTone(e.status)}>{e.status}</Badge></div>
       <p className="segmento-card-sub">{e.fantasia} · CNPJ {e.cnpj}</p>
@@ -801,5 +849,5 @@ function SegmentoModal({ titulo, empresas, onClose }: { titulo: string; empresas
         <div className="full"><span>Endereço</span><strong>{e.endereco || "Não informado"}</strong></div>
       </div>
     </article>)}</div>}
-  </div></div>;
+  </div></AccessibleModal>;
 }
