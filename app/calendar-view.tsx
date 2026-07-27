@@ -396,7 +396,14 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
   const diasFinaisEmBranco = (7 - ((primeiroDiaSemana + diasNoMes) % 7)) % 7;
 
   const [mode, setMode] = useState<"month" | "list">("month");
-  const [responsible, setResponsible] = useState(papel === "funcionario" ? userName : "Todos");
+  // Guarda o id do responsável selecionado (nunca o nome): dois perfis com o
+  // mesmo nome cadastrado faziam o filtro (e a comparação `.includes`) juntar
+  // as tarefas dos dois sob a mesma opção — id é a única chave que garante
+  // distinguir cada pessoa de verdade. A busca por nome aqui só serve para
+  // decidir o valor inicial ("meu" filtro, para quem é funcionário); todo o
+  // resto do filtro já opera só por id.
+  const meuPerfilId = perfis.find((p) => p.nome === userName)?.id ?? "Todos";
+  const [responsible, setResponsible] = useState(papel === "funcionario" ? meuPerfilId : "Todos");
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [taskError, setTaskError] = useState("");
@@ -441,6 +448,19 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
   const [deleteModeloSaving, setDeleteModeloSaving] = useState(false);
   const [deleteModeloError, setDeleteModeloError] = useState("");
 
+  // Modal combinado aberto ao clicar na parte em branco de um dia do
+  // calendário (fora dos botões de tarefa já existentes): a pessoa escolhe
+  // "tarefa única" ou "recorrente" e só então vê os campos daquele tipo —
+  // reaproveita os mesmos rascunhos (`draft`/`modeloDraft`) e telas de erro
+  // dos botões "+ Nova tarefa"/"+ Novo modelo", só que fechando `novoAberto`
+  // no final em vez de `open`/`modeloOpen`.
+  const [novoAberto, setNovoAberto] = useState(false);
+  const [novoRecorrente, setNovoRecorrente] = useState(false);
+  // Dia da semana (1=segunda…7=domingo) do dia clicado — só para reaplicar
+  // como sugestão de "Dias da semana" se a pessoa trocar para "Semanal" DEPOIS
+  // de já ter limpado a seleção (ver `alterarPeriodicidadeNoDia` abaixo).
+  const [novoDiaDaSemanaClicado, setNovoDiaDaSemanaClicado] = useState<number | null>(null);
+
   useEffect(() => {
     listarModelosRecorrencia()
       .then((dados) => { setModelos(dados); setModelosCarregados(true); })
@@ -473,9 +493,9 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
     return () => { cancel = true; };
   }, [mesISO, isMesAtual]);
 
-  const people = ["Todos", ...Array.from(new Set(perfis.map((p) => p.nome)))];
-  const shown = monthTasks.filter((t) => responsible === "Todos" || t.responsaveis.includes(responsible));
-  const modelosShown = modelos.filter((m) => responsible === "Todos" || m.responsaveis.includes(responsible));
+  const people = [{ id: "Todos", nome: "Todos" }, ...perfis];
+  const shown = monthTasks.filter((t) => responsible === "Todos" || t.responsavelIds.includes(responsible));
+  const modelosShown = modelos.filter((m) => responsible === "Todos" || m.responsavelIds.includes(responsible));
   const feriadoPorData = new Map(feriados.map((feriado) => [feriado.data, feriado]));
 
   const recarregarMes = async (falhaParcial: string) => {
@@ -620,6 +640,23 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
     }));
   };
 
+  // Mesmo seletor de periodicidade do modal combinado (clique no dia), mas
+  // sem o reset "para os padrões genéricos" de `alterarPeriodicidadeDraft` —
+  // ali o reset faz sentido (não há dia nenhum sugerido antes de trocar),
+  // aqui apagaria o dia que a própria pessoa acabou de clicar no calendário.
+  // `diaReferencia` nunca é tocado (permanece o dia clicado, ou o que a
+  // pessoa tiver digitado por cima); `diasSemana` só ganha de volta o dia da
+  // semana do clique se já estiver vazio (preserva uma escolha manual).
+  const alterarPeriodicidadeNoDia = (p: Periodicidade) => {
+    setModeloDraft((d) => ({
+      ...d,
+      periodicidade: p,
+      diasSemana: p === "semanal" && d.diasSemana.length === 0 && novoDiaDaSemanaClicado !== null
+        ? [novoDiaDaSemanaClicado]
+        : d.diasSemana,
+    }));
+  };
+
   const alternarDiaSemanaDraft = (dia: number) => {
     setModeloDraft((d) => ({
       ...d,
@@ -668,6 +705,139 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
     await recarregarMes("Modelo criado, mas não foi possível atualizar o calendário. Atualize a página.");
     setModeloSaving(false);
     setModeloOpen(false);
+  };
+
+  // Aberto ao clicar na parte em branco de um dia do mês (ver o `onClick` do
+  // `.day-clickable` mais abaixo). Pré-preenche os dois rascunhos com o dia
+  // clicado, para qualquer que seja a escolha (tarefa única ou recorrente)
+  // já sair com a data certa — troque de escolha à vontade que nenhum dos
+  // dois se perde, os dois ficam prontos em paralelo.
+  const abrirNovoNoDia = (dataISO: string) => {
+    setTaskError(""); setModeloError("");
+    setNovoRecorrente(false);
+    setDraft({
+      titulo: "", natureza: "Interna", empresaId: companies[0]?.id ?? "",
+      responsavelIds: [], vencimento: dataISO,
+    });
+    const dataClicada = new Date(`${dataISO}T12:00:00`);
+    const diaDaSemana = dataClicada.getDay() === 0 ? 7 : dataClicada.getDay(); // 1=segunda…7=domingo
+    setNovoDiaDaSemanaClicado(diaDaSemana);
+    setModeloDraft({
+      titulo: "", tipo: "Fiscal", periodicidade: "mensal", diaReferencia: dataClicada.getDate(),
+      diasSemana: [diaDaSemana], mesReferencia: dataClicada.getMonth() + 1,
+      modoRepeticao: "indefinido", repeteInicio: null, repeteFim: null,
+      natureza: "Externa", empresaId: companies[0]?.id ?? "", responsavelIds: [],
+    });
+    setNovoAberto(true);
+  };
+
+  // Mesma criação de `add`, mas fecha `novoAberto` em vez de `open` — os dois
+  // botões de entrada ("+ Nova tarefa" e o clique no dia) não podem interferir
+  // um no estado do outro.
+  const criarTarefaNoDia = async (e: FormEvent) => {
+    e.preventDefault();
+    if (draft.natureza === "Externa" && !draft.empresaId) {
+      setTaskError("Selecione a empresa cliente da tarefa externa.");
+      return;
+    }
+    setSaving(true); setTaskError("");
+    try {
+      await criarTarefa({
+        titulo: draft.titulo,
+        tipo: draft.natureza,
+        empresaId: draft.natureza === "Externa" ? draft.empresaId : "",
+        responsavelIds: draft.responsavelIds,
+        vencimento: draft.vencimento,
+      });
+    } catch (error) {
+      const bruta = error instanceof Error ? error.message : "Não foi possível criar a tarefa";
+      setTaskError(`${semPontoFinal(bruta)}. Tente novamente.`);
+      setSaving(false);
+      return;
+    }
+    await recarregarMes("Tarefa criada, mas não foi possível atualizar a lista. Atualize a página.");
+    setSaving(false);
+    setNovoAberto(false);
+  };
+
+  // Mesma criação de `criarModelo`, mas fecha `novoAberto` em vez de `modeloOpen`.
+  const criarModeloNoDia = async (e: FormEvent) => {
+    e.preventDefault();
+    if (modeloDraft.natureza === "Externa" && !modeloDraft.empresaId) {
+      setModeloError("Selecione a empresa cliente do modelo externo.");
+      return;
+    }
+    if (modeloDraft.periodicidade === "semanal" && modeloDraft.diasSemana.length === 0) {
+      setModeloError("Selecione pelo menos um dia da semana.");
+      return;
+    }
+    if (modeloDraft.modoRepeticao === "periodo" && (!modeloDraft.repeteInicio || !modeloDraft.repeteFim)) {
+      setModeloError("Selecione o período de repetição.");
+      return;
+    }
+    setModeloSaving(true); setModeloError("");
+    try {
+      await criarModeloRecorrencia({
+        titulo: modeloDraft.titulo,
+        tipo: modeloDraft.tipo,
+        periodicidade: modeloDraft.periodicidade,
+        diaReferencia: modeloDraft.diaReferencia,
+        diasSemana: modeloDraft.periodicidade === "semanal" ? modeloDraft.diasSemana : undefined,
+        mesReferencia: modeloDraft.periodicidade === "anual" ? modeloDraft.mesReferencia : undefined,
+        repeteInicio: modeloDraft.modoRepeticao === "periodo" ? modeloDraft.repeteInicio : null,
+        repeteFim: modeloDraft.modoRepeticao === "periodo" ? modeloDraft.repeteFim : null,
+        empresaId: modeloDraft.natureza === "Externa" ? modeloDraft.empresaId : null,
+        responsavelIds: modeloDraft.responsavelIds,
+      });
+    } catch (error) {
+      const bruta = error instanceof Error ? error.message : "Não foi possível criar o modelo de recorrência";
+      setModeloError(`${semPontoFinal(bruta)}. Tente novamente.`);
+      setModeloSaving(false);
+      return;
+    }
+    await refetchModelos("Modelo criado, mas não foi possível atualizar a lista. Atualize a página.");
+    await recarregarMes("Modelo criado, mas não foi possível atualizar o calendário. Atualize a página.");
+    setModeloSaving(false);
+    setNovoAberto(false);
+  };
+
+  const salvarNovoNoDia = (e: FormEvent) => (novoRecorrente ? criarModeloNoDia(e) : criarTarefaNoDia(e));
+
+  // Cabeçalho do modal combinado: acompanha o campo que a pessoa está
+  // preenchendo NO MOMENTO (o dia clicado só define o valor inicial) — sem
+  // isso, mudar a data/dia do mês no formulário deixava o título "preso" na
+  // data do clique original, dando a entender que a mudança não tinha sido
+  // aplicada. Nunca monta um objeto `Date` a partir de `diaReferencia` (podia
+  // dar dia inválido pro mês, ex.: 31 de fevereiro) — descreve por extenso a
+  // partir dos próprios campos do formulário.
+  const tituloNovoNoDia = () => {
+    if (!novoRecorrente) {
+      // O campo de data fica incompleto enquanto a pessoa digita (dia "00",
+      // ou vazio) — `new Date(...)` vira "Data Inválida" nesse meio-tempo, e
+      // formatá-la lançaria uma exceção a cada tecla. Um título genérico
+      // nesse instante é melhor do que travar a tela inteira.
+      try {
+        return `Adicionar em ${formatDataLonga(draft.vencimento)}`;
+      } catch {
+        return "Adicionar tarefa";
+      }
+    }
+    if (modeloDraft.periodicidade === "diario") return "Adicionar — repete todo dia";
+    if (modeloDraft.periodicidade === "semanal") {
+      return modeloDraft.diasSemana.length > 0
+        ? `Adicionar — repete ${modeloDraft.diasSemana.map((n) => DIAS_SEMANA.find(([num]) => num === n)?.[1] ?? `dia ${n}`).join(", ")}`
+        : "Adicionar — selecione os dias da semana";
+    }
+    // Enquanto o campo "Dia do mês" está sendo digitado (ex.: "0" antes de
+    // virar "27", ou apagado), `diaReferencia` passa por 0/NaN — mostra um
+    // texto neutro nesse meio-tempo em vez de "dia 0" ou "dia NaN".
+    const diaValido = Number.isInteger(modeloDraft.diaReferencia) && modeloDraft.diaReferencia >= 1 && modeloDraft.diaReferencia <= 31;
+    if (modeloDraft.periodicidade === "anual") {
+      return diaValido
+        ? `Adicionar — repete todo dia ${modeloDraft.diaReferencia} de ${MESES_PT[modeloDraft.mesReferencia - 1].toLowerCase()}`
+        : "Adicionar — selecione o dia de referência";
+    }
+    return diaValido ? `Adicionar — repete todo dia ${modeloDraft.diaReferencia} do mês` : "Adicionar — selecione o dia de referência";
   };
 
   const desativarModelo = async (id: string) => {
@@ -761,9 +931,9 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
       </div>
     </section>
 
-    <section className="calendar-toolbar"><div className="tabs"><button className={mode === "month" ? "selected" : ""} onClick={() => setMode("month")}>Calendário</button><button className={mode === "list" ? "selected" : ""} onClick={() => setMode("list")}>Lista</button></div><label>Responsável <select value={responsible} onChange={(e) => setResponsible(e.target.value)}>{people.map((p) => <option key={p}>{p}</option>)}</select></label></section>
+    <section className="calendar-toolbar"><div className="tabs"><button className={mode === "month" ? "selected" : ""} onClick={() => setMode("month")}>Calendário</button><button className={mode === "list" ? "selected" : ""} onClick={() => setMode("list")}>Lista</button></div><label>Responsável <select value={responsible} onChange={(e) => setResponsible(e.target.value)}>{people.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label></section>
 
-    {monthLoading ? <section className="panel" role="status" aria-live="polite"><div className="empty"><span aria-hidden="true">◷</span><strong>Carregando {mesLabel.toLowerCase()}…</strong><p>Buscando as tarefas deste mês.</p></div></section> : mode === "month" ? <section className="calendar"><div className="weekdays">{["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((d) => <span key={d}>{d}</span>)}</div><div className="day-grid">{Array.from({ length: primeiroDiaSemana }, (_, i) => <div className="day muted" key={`blank-${i}`} />)}{monthDays.map((day) => { const date = `${mesISO}-${pad2(day)}`; const items = shown.filter((t) => t.vencimento === date); const holiday = feriadoPorData.get(date) ?? items.find((t) => t.coincideComFeriado)?.coincideComFeriado ?? null; const ehHoje = isMesAtual && date === dataHojeISO; return <div className={`day ${holiday ? "holiday" : ""} ${ehHoje ? "is-today" : ""}`} key={day}><span>{day}</span>{holiday && <small title={holiday.nome}>Feriado</small>}{items.map((t) => <button className={`calendar-task ${t.status === "Atrasada" ? "late" : ""} ${t.status === "Concluída" ? "done" : ""}`} key={t.id} title="Ver detalhes" onClick={() => setDetalhe(t)}>{t.titulo}</button>)}</div>; })}{Array.from({ length: diasFinaisEmBranco }, (_, i) => <div className="day muted" key={`blank-fim-${i}`} />)}</div></section> : <section className="panel list-tasks">{shown.map((t) => <div className="task-line" key={t.id}><time>{formatDate(t.vencimento)}</time><div><strong>{t.titulo}</strong><small>{nomeEmpresaTarefa(t)} · {t.responsaveis.length > 0 ? t.responsaveis.join(", ") : "Sem responsável"}</small></div>{t.coincideComFeriado && <Badge tone="warning">Feriado: {t.coincideComFeriado.nome}</Badge>}<Badge tone={t.status === "Atrasada" ? "danger" : t.status === "Concluída" ? "success" : "blue"}>{t.status}</Badge><div className="row-menu"><button className="icon-button" aria-label={`Mais opções — ${t.titulo}`} onClick={(e) => toggleTaskMenu(t.id, e.currentTarget)}>⋯</button>{menuTaskId === t.id && menuAnchor && <>
+    {monthLoading ? <section className="panel" role="status" aria-live="polite"><div className="empty"><span aria-hidden="true">◷</span><strong>Carregando {mesLabel.toLowerCase()}…</strong><p>Buscando as tarefas deste mês.</p></div></section> : mode === "month" ? <section className="calendar"><div className="weekdays">{["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((d) => <span key={d}>{d}</span>)}</div><div className="day-grid">{Array.from({ length: primeiroDiaSemana }, (_, i) => <div className="day muted" key={`blank-${i}`} />)}{monthDays.map((day) => { const date = `${mesISO}-${pad2(day)}`; const items = shown.filter((t) => t.vencimento === date); const holiday = feriadoPorData.get(date) ?? items.find((t) => t.coincideComFeriado)?.coincideComFeriado ?? null; const ehHoje = isMesAtual && date === dataHojeISO; return <div className={`day day-clickable ${holiday ? "holiday" : ""} ${ehHoje ? "is-today" : ""}`} key={day} onClick={(event) => { if ((event.target as HTMLElement).closest(".calendar-task")) return; abrirNovoNoDia(date); }}><span>{day}</span>{holiday && <small title={holiday.nome}>Feriado</small>}{items.map((t) => <button className={`calendar-task ${t.status === "Atrasada" ? "late" : ""} ${t.status === "Concluída" ? "done" : ""}`} key={t.id} title="Ver detalhes" onClick={() => setDetalhe(t)}>{t.titulo}</button>)}</div>; })}{Array.from({ length: diasFinaisEmBranco }, (_, i) => <div className="day muted" key={`blank-fim-${i}`} />)}</div></section> : <section className="panel list-tasks">{shown.map((t) => <div className="task-line" key={t.id}><time>{formatDate(t.vencimento)}</time><div><strong>{t.titulo}</strong><small>{nomeEmpresaTarefa(t)} · {t.responsaveis.length > 0 ? t.responsaveis.join(", ") : "Sem responsável"}</small></div>{t.coincideComFeriado && <Badge tone="warning">Feriado: {t.coincideComFeriado.nome}</Badge>}<Badge tone={t.status === "Atrasada" ? "danger" : t.status === "Concluída" ? "success" : "blue"}>{t.status}</Badge><div className="row-menu"><button className="icon-button" aria-label={`Mais opções — ${t.titulo}`} onClick={(e) => toggleTaskMenu(t.id, e.currentTarget)}>⋯</button>{menuTaskId === t.id && menuAnchor && <>
       <button type="button" className="menu-backdrop" aria-label="Fechar menu" onClick={closeTaskMenu} />
       <div ref={menuAcessivel.menuRef} className="dropdown-menu" role="menu" onKeyDown={menuAcessivel.aoTeclar} style={{ top: menuAnchor.top, right: menuAnchor.right }}>{t.status !== "Concluída" && <button type="button" role="menuitem" disabled={concluindoId === t.id} onClick={() => { dismissTaskMenu(); concluir(t.id); }}>{concluindoId === t.id ? "Concluindo…" : "Concluir"}</button>}<button type="button" role="menuitem" onClick={() => { dismissTaskMenu(); setEditingTask(t); }}>Editar</button><button type="button" role="menuitem" className="danger" onClick={() => { dismissTaskMenu(); setDeletingTask(t); setDeleteError(""); }}>Excluir</button></div>
     </>}</div></div>)}{shown.length === 0 && <Empty title="Nenhuma tarefa neste mês" text="Cadastre uma tarefa avulsa ou um modelo de recorrência." />}</section>}
@@ -787,7 +957,7 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
       </div>
     </AccessibleModal>}
 
-    <section className="section-head"><div><h2>Modelos recorrentes</h2><p>Tarefas geradas automaticamente todo mês, conforme a periodicidade.</p></div><button className="primary" onClick={abrirNovoModelo}>+ Novo modelo</button></section>
+    <section className="section-head models-section-head"><div><h2>Modelos recorrentes</h2><p>Tarefas geradas automaticamente todo mês, conforme a periodicidade.</p></div><button className="primary" onClick={abrirNovoModelo}>+ Novo modelo</button></section>
     {modeloError && <div className="notice error" role="alert"><p>{modeloError}</p></div>}
     <section className="panel table-wrap models-table-wrap">
       <table className="models-table">
@@ -879,6 +1049,80 @@ export function Calendar({ tasks, setTasks, companies, perfis, userName, papel }
       </div>
       {semEmpresaExternaModelo && <p className="inline-error">Nenhuma empresa cadastrada — cadastre uma no Onboarding para criar modelos externos.</p>}
       <button className="primary" disabled={modeloSaving || semEmpresaExternaModelo}>{modeloSaving ? "Salvando…" : "Salvar modelo"}</button>
+    </form></AccessibleModal>}
+
+    {novoAberto && <AccessibleModal label="Adicionar ao dia" onClose={() => setNovoAberto(false)}><form className="modal" onSubmit={salvarNovoNoDia}>
+      <button type="button" className="close" onClick={() => setNovoAberto(false)} aria-label="Fechar">×</button>
+      <h2>{tituloNovoNoDia()}</h2>
+      <div className="field-block">
+        <span className="field-label">É recorrente?</span>
+        <div className="segmented" role="group" aria-label="É recorrente?">
+          <button type="button" className={!novoRecorrente ? "selected" : ""} onClick={() => setNovoRecorrente(false)}>Não, tarefa única</button>
+          <button type="button" className={novoRecorrente ? "selected" : ""} onClick={() => setNovoRecorrente(true)}>Sim, recorrente</button>
+        </div>
+        <small className="field-hint">{novoRecorrente ? "Gera tarefas automaticamente a cada mês, a partir de hoje." : "Cadastre uma obrigação avulsa da carteira."}</small>
+      </div>
+
+      {!novoRecorrente ? <>
+        <label>Título<input required value={draft.titulo} onChange={(e) => setDraft({ ...draft, titulo: e.target.value })} placeholder="Ex.: Conferência de documentos" /></label>
+        <div className="field-block">
+          <span className="field-label">Natureza da tarefa</span>
+          <div className="segmented" role="group" aria-label="Natureza da tarefa">
+            <button type="button" className={draft.natureza === "Interna" ? "selected" : ""} onClick={() => setDraft({ ...draft, natureza: "Interna" })}>Interna</button>
+            <button type="button" className={draft.natureza === "Externa" ? "selected" : ""} onClick={escolherExternaNoDraft}>Externa</button>
+          </div>
+          <small className="field-hint">{draft.natureza === "Interna" ? "Reunião ou atividade da própria equipe." : "Compromisso com uma empresa cliente."}</small>
+        </div>
+        {draft.natureza === "Externa" && companies.length > 0 && <label>Empresa<select value={draft.empresaId} onChange={(e) => setDraft({ ...draft, empresaId: e.target.value })}>{companies.map((c) => <option key={c.id} value={c.id}>{c.fantasia}</option>)}</select></label>}
+        <div className="field-block">
+          <span className="field-label">Responsáveis</span>
+          <ResponsavelPicker perfis={perfis} selecionados={draft.responsavelIds} onChange={(ids) => setDraft({ ...draft, responsavelIds: ids })} />
+        </div>
+        <label>Vencimento<input type="date" value={draft.vencimento} onChange={(e) => setDraft({ ...draft, vencimento: e.target.value })} /></label>
+        {semEmpresaExterna && <p className="inline-error">Nenhuma empresa cadastrada — cadastre uma no Onboarding para criar tarefas externas.</p>}
+        {taskError && <div className="notice error" role="alert"><p>{taskError}</p></div>}
+        <button className="primary" disabled={saving || semEmpresaExterna}>{saving ? "Salvando…" : "Salvar tarefa"}</button>
+      </> : <>
+        <label>Título<input required value={modeloDraft.titulo} onChange={(e) => setModeloDraft({ ...modeloDraft, titulo: e.target.value })} placeholder="Ex.: Fechamento da folha" /></label>
+        <div className="field-block">
+          <span className="field-label">Natureza do modelo</span>
+          <div className="segmented" role="group" aria-label="Natureza do modelo">
+            <button type="button" className={modeloDraft.natureza === "Interna" ? "selected" : ""} onClick={() => setModeloDraft({ ...modeloDraft, natureza: "Interna" })}>Interna</button>
+            <button type="button" className={modeloDraft.natureza === "Externa" ? "selected" : ""} onClick={escolherExternaNoModeloDraft}>Externa</button>
+          </div>
+          <small className="field-hint">{modeloDraft.natureza === "Interna" ? "Rotina ou reunião recorrente da própria equipe." : "Obrigação recorrente de uma empresa cliente."}</small>
+        </div>
+        <label>Tipo<input required value={modeloDraft.tipo} onChange={(e) => setModeloDraft({ ...modeloDraft, tipo: e.target.value })} placeholder="Ex.: Fiscal" /></label>
+        <label>Periodicidade<select value={modeloDraft.periodicidade} onChange={(e) => alterarPeriodicidadeNoDia(e.target.value as Periodicidade)}><option value="diario">Diário</option><option value="semanal">Semanal</option><option value="mensal">Mensal</option><option value="anual">Anual</option></select></label>
+        {modeloDraft.periodicidade === "semanal" && <div className="field-block">
+          <span className="field-label">Dias da semana</span>
+          <div className="choice-group" role="group" aria-label="Dias da semana">
+            {DIAS_SEMANA_CURTO.map(([n, label]) => <button key={n} type="button" className={modeloDraft.diasSemana.includes(n) ? "selected" : ""} onClick={() => alternarDiaSemanaDraft(n)}>{label}</button>)}
+          </div>
+        </div>}
+        {modeloDraft.periodicidade === "anual" && <div className="field-grid">
+          <label>Mês<select value={modeloDraft.mesReferencia} onChange={(e) => setModeloDraft({ ...modeloDraft, mesReferencia: Number(e.target.value) })}>{MESES_PT.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select></label>
+          <label>Dia do mês<input type="number" min={1} max={31} required value={modeloDraft.diaReferencia} onChange={(e) => setModeloDraft({ ...modeloDraft, diaReferencia: Number(e.target.value) })} /></label>
+        </div>}
+        {modeloDraft.periodicidade === "mensal" && <label>Dia do mês<input type="number" min={1} max={31} required value={modeloDraft.diaReferencia} onChange={(e) => setModeloDraft({ ...modeloDraft, diaReferencia: Number(e.target.value) })} /></label>}
+        <div className="field-block">
+          <span className="field-label">Repetição</span>
+          <div className="segmented" role="group" aria-label="Repetição">
+            <button type="button" className={modeloDraft.modoRepeticao === "indefinido" ? "selected" : ""} onClick={() => setModeloDraft({ ...modeloDraft, modoRepeticao: "indefinido", repeteInicio: null, repeteFim: null })}>Sem data final</button>
+            <button type="button" className={modeloDraft.modoRepeticao === "periodo" ? "selected" : ""} onClick={() => setModeloDraft({ ...modeloDraft, modoRepeticao: "periodo" })}>Repetir por um período</button>
+          </div>
+          <small className="field-hint">{modeloDraft.modoRepeticao === "indefinido" ? `Gera tarefas indefinidamente, ${FREQUENCIA_TEXTO[modeloDraft.periodicidade]}.` : "Para de gerar novas tarefas após o período informado."}</small>
+          {modeloDraft.modoRepeticao === "periodo" && <RepeticaoRangePicker inicio={modeloDraft.repeteInicio} fim={modeloDraft.repeteFim} onChange={(i, f) => setModeloDraft({ ...modeloDraft, repeteInicio: i, repeteFim: f })} />}
+        </div>
+        {modeloDraft.natureza === "Externa" && companies.length > 0 && <label>Empresa<select value={modeloDraft.empresaId} onChange={(e) => setModeloDraft({ ...modeloDraft, empresaId: e.target.value })}>{companies.map((c) => <option key={c.id} value={c.id}>{c.fantasia}</option>)}</select></label>}
+        <div className="field-block">
+          <span className="field-label">Responsáveis</span>
+          <ResponsavelPicker perfis={perfis} selecionados={modeloDraft.responsavelIds} onChange={(ids) => setModeloDraft({ ...modeloDraft, responsavelIds: ids })} />
+        </div>
+        {semEmpresaExternaModelo && <p className="inline-error">Nenhuma empresa cadastrada — cadastre uma no Onboarding para criar modelos externos.</p>}
+        {modeloError && <div className="notice error" role="alert"><p>{modeloError}</p></div>}
+        <button className="primary" disabled={modeloSaving || semEmpresaExternaModelo}>{modeloSaving ? "Salvando…" : "Salvar modelo"}</button>
+      </>}
     </form></AccessibleModal>}
 
     {editingTask && <TarefaEditModal tarefa={editingTask} companies={companies} perfis={perfis} onClose={() => setEditingTask(null)} onSaved={handleTarefaEditada} />}
