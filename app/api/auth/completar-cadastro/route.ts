@@ -1,19 +1,17 @@
 import { createSupabaseRouteHandlerClient } from "@/lib/supabase/server";
 
 export async function POST(request: Request) {
-  let payload: { escritorioNome?: string; nome?: string };
+  let payload: { escritorioNome?: string; nome?: string; senha?: string };
 
   try {
-    payload = (await request.json()) as { escritorioNome?: string; nome?: string };
+    payload = (await request.json()) as { escritorioNome?: string; nome?: string; senha?: string };
   } catch {
-    return Response.json({ error: "Informe o nome do escritório e o seu nome." }, { status: 400 });
+    return Response.json({ error: "Informe seu nome." }, { status: 400 });
   }
 
-  const escritorioNome = payload.escritorioNome?.trim() ?? "";
   const nome = payload.nome?.trim() ?? "";
-
-  if (!escritorioNome || !nome) {
-    return Response.json({ error: "Informe o nome do escritório e o seu nome." }, { status: 400 });
+  if (!nome) {
+    return Response.json({ error: "Informe seu nome." }, { status: 400 });
   }
 
   const { supabase, applySetCookies } = await createSupabaseRouteHandlerClient();
@@ -27,7 +25,7 @@ export async function POST(request: Request) {
 
   const { data: perfil } = await supabase
     .from("perfis")
-    .select("escritorio_id")
+    .select("escritorio_id, papel")
     .eq("id", user.id)
     .single();
 
@@ -35,21 +33,31 @@ export async function POST(request: Request) {
     return applySetCookies(Response.json({ error: "Perfil não encontrado." }, { status: 404 }));
   }
 
-  const { error: erroEscritorio } = await supabase
-    .from("escritorios")
-    .update({ nome: escritorioNome })
-    .eq("id", perfil.escritorio_id);
+  if (perfil.papel === "responsavel") {
+    const escritorioNome = payload.escritorioNome?.trim() ?? "";
+    if (!escritorioNome) {
+      return applySetCookies(Response.json({ error: "Informe o nome do escritório e o seu nome." }, { status: 400 }));
+    }
+    const { error: erroEscritorio } = await supabase
+      .from("escritorios")
+      .update({ nome: escritorioNome })
+      .eq("id", perfil.escritorio_id);
 
-  if (erroEscritorio) {
-    return applySetCookies(
-      Response.json({ error: "Não foi possível salvar o escritório. Tente novamente." }, { status: 400 }),
-    );
+    if (erroEscritorio) {
+      return applySetCookies(Response.json({ error: "Não foi possível salvar o escritório. Tente novamente." }, { status: 400 }));
+    }
+  } else {
+    const senha = payload.senha ?? "";
+    if (senha.length < 8) {
+      return applySetCookies(Response.json({ error: "A senha deve ter ao menos 8 caracteres." }, { status: 400 }));
+    }
+    const { error: erroSenha } = await supabase.auth.updateUser({ password: senha });
+    if (erroSenha) {
+      return applySetCookies(Response.json({ error: "Não foi possível definir a senha. Tente novamente." }, { status: 400 }));
+    }
   }
 
-  const { error: erroPerfil } = await supabase
-    .from("perfis")
-    .update({ nome, cadastro_completo: true })
-    .eq("id", user.id);
+  const { error: erroPerfil } = await supabase.from("perfis").update({ nome, cadastro_completo: true }).eq("id", user.id);
 
   if (erroPerfil) {
     return applySetCookies(
