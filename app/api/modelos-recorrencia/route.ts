@@ -4,6 +4,7 @@ import {
   buscarModeloRecorrenciaCompletoPorId,
   paraShapeFrontend,
   faixaDiaReferencia,
+  substituirResponsaveisModelo,
   validarDiasSemana,
   validarMesReferencia,
   validarRepeticoes,
@@ -48,7 +49,7 @@ type ModeloRecorrenciaPayload = {
   diasSemana?: number[];
   mesReferencia?: number;
   empresaId?: string | null;
-  responsavelId?: string | null;
+  responsavelIds?: string[];
   repeticoesQuantidade?: number | null;
   repeticoesUnidade?: string | null;
 };
@@ -165,7 +166,6 @@ export async function POST(request: Request) {
       dia_referencia: diaReferencia,
       dias_semana: diasSemana,
       mes_referencia: mesReferencia,
-      responsavel_id: payload.responsavelId ?? null,
       repeticoes_quantidade: repeticoesQuantidade,
       repeticoes_unidade: repeticoesUnidade,
       ativo: true,
@@ -178,6 +178,16 @@ export async function POST(request: Request) {
     return applySetCookies(
       Response.json({ error: "Não foi possível criar o modelo de recorrência." }, { status: 500 }),
     );
+  }
+
+  const responsavelIds = Array.isArray(payload.responsavelIds) ? payload.responsavelIds : [];
+  if (responsavelIds.length > 0) {
+    const erroResponsaveis = await substituirResponsaveisModelo(supabase, (modeloInserido as { id: string }).id, responsavelIds);
+    if (erroResponsaveis) {
+      return applySetCookies(
+        Response.json({ error: "Modelo criado, mas não foi possível salvar os responsáveis." }, { status: 500 }),
+      );
+    }
   }
 
   const modeloCompleto = await buscarModeloRecorrenciaCompletoPorId(

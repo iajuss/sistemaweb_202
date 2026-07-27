@@ -3,6 +3,7 @@ import {
   buscarModeloRecorrenciaCompletoPorId,
   paraShapeFrontend,
   faixaDiaReferencia,
+  substituirResponsaveisModelo,
   validarDiasSemana,
   validarMesReferencia,
   validarRepeticoes,
@@ -19,7 +20,7 @@ type ModeloRecorrenciaPatchPayload = {
   diasSemana?: number[];
   mesReferencia?: number;
   empresaId?: string | null;
-  responsavelId?: string | null;
+  responsavelIds?: string[];
   repeticoesQuantidade?: number | null;
   repeticoesUnidade?: string | null;
   ativo?: boolean;
@@ -36,7 +37,6 @@ const CAMPOS_EDITAVEIS: { chave: keyof ModeloRecorrenciaPatchPayload; coluna: st
   { chave: "diasSemana", coluna: "dias_semana" },
   { chave: "mesReferencia", coluna: "mes_referencia" },
   { chave: "empresaId", coluna: "empresa_id" },
-  { chave: "responsavelId", coluna: "responsavel_id" },
   { chave: "repeticoesQuantidade", coluna: "repeticoes_quantidade" },
   { chave: "repeticoesUnidade", coluna: "repeticoes_unidade" },
   { chave: "ativo", coluna: "ativo" },
@@ -147,21 +147,40 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     }
   }
 
-  const { data: modeloAtualizado, error: updateError } = await supabase
-    .from("modelos_recorrencia")
-    .update(updates)
-    .eq("id", id)
-    .select("id")
-    .maybeSingle();
+  const responsavelIdsPatch: string[] | null = "responsavelIds" in payload
+    ? (Array.isArray(payload.responsavelIds) ? payload.responsavelIds : [])
+    : null;
 
-  if (updateError) {
-    return applySetCookies(
-      Response.json({ error: "Não foi possível atualizar o modelo de recorrência." }, { status: 500 }),
-    );
+  if (Object.keys(updates).length === 0 && responsavelIdsPatch === null) {
+    return applySetCookies(Response.json({ error: "Nenhum campo para atualizar." }, { status: 400 }));
   }
 
-  if (!modeloAtualizado) {
-    return applySetCookies(Response.json({ error: "Modelo de recorrência não encontrado." }, { status: 404 }));
+  if (Object.keys(updates).length > 0) {
+    const { data: modeloAtualizado, error: updateError } = await supabase
+      .from("modelos_recorrencia")
+      .update(updates)
+      .eq("id", id)
+      .select("id")
+      .maybeSingle();
+
+    if (updateError) {
+      return applySetCookies(
+        Response.json({ error: "Não foi possível atualizar o modelo de recorrência." }, { status: 500 }),
+      );
+    }
+
+    if (!modeloAtualizado) {
+      return applySetCookies(Response.json({ error: "Modelo de recorrência não encontrado." }, { status: 404 }));
+    }
+  }
+
+  if (responsavelIdsPatch !== null) {
+    const erroResponsaveis = await substituirResponsaveisModelo(supabase, id, responsavelIdsPatch);
+    if (erroResponsaveis) {
+      return applySetCookies(
+        Response.json({ error: "Não foi possível atualizar os responsáveis do modelo." }, { status: 500 }),
+      );
+    }
   }
 
   const modeloCompleto = await buscarModeloRecorrenciaCompletoPorId(supabase, id);
