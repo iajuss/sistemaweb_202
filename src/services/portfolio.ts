@@ -18,8 +18,8 @@ export type Empresa = {
   porte: Porte;
   status: StatusEmpresa;
   abertura: string | null;
-  responsavelId?: string | null;
-  responsavel: string;
+  responsavelIds: string[];
+  responsaveis: string[];
   socios: string[];
   tags: string[];
   observacoes?: string;
@@ -66,9 +66,6 @@ export type Tarefa = {
 
 export type Periodicidade = "diario" | "semanal" | "mensal" | "anual";
 
-/** Unidade do "repetir por X" de um modelo de recorrência — ver `ModeloRecorrencia.repeticoesQuantidade`. */
-export type UnidadeRepeticao = "dias" | "meses" | "anos";
-
 export type ModeloRecorrencia = {
   id: string;
   empresaId: string | null;
@@ -84,10 +81,10 @@ export type ModeloRecorrencia = {
   responsavelIds: string[];
   responsaveis: string[];
   ativo: boolean;
-  // Fim da recorrência por duração (ex.: repetir por 2 meses), a partir de
-  // `criadoEm`. Os dois `null` juntos = repete sem data final.
-  repeticoesQuantidade: number | null;
-  repeticoesUnidade: UnidadeRepeticao | null;
+  // Início/fim reais da recorrência (datas "YYYY-MM-DD"). Os dois `null`
+  // juntos = repete sem data final; sempre vêm juntos (nunca só um).
+  repeteInicio: string | null;
+  repeteFim: string | null;
   criadoEm?: string;
 };
 
@@ -157,8 +154,8 @@ export async function consultarCNPJ(cnpj: string): Promise<Empresa> {
     porte: body.porte,
     status: body.situacaoCadastral,
     abertura: body.abertura,
-    responsavelId: null,
-    responsavel: "",
+    responsavelIds: [],
+    responsaveis: [],
     socios: ((body.socios ?? []) as SocioPayload[]).map(formatarSocio),
     tags: [],
     observacoes: "",
@@ -180,7 +177,7 @@ export async function salvarEmpresa(empresa: Empresa): Promise<Empresa> {
     situacaoCadastral: empresa.status,
     abertura: empresa.abertura,
     socios: empresa.socios.map(paraSocioPayload),
-    responsavelId: empresa.responsavelId ?? null,
+    responsavelIds: empresa.responsavelIds,
     observacoes: empresa.observacoes ?? "",
     tags: empresa.tags ?? [],
   };
@@ -220,7 +217,7 @@ export type EmpresaPatch = Partial<{
   porte: string;
   situacaoCadastral: string;
   abertura: string | null;
-  responsavelId: string | null;
+  responsavelIds: string[];
   observacoes: string;
   tags: string[];
   socios: SocioPayload[];
@@ -246,6 +243,28 @@ export async function listarPerfis(): Promise<{ id: string; nome: string }[]> {
   const response = await fetch("/api/perfis");
   if (!response.ok) {
     throw new Error(await extrairMensagemDeErro(response, "Não foi possível carregar os perfis."));
+  }
+  return response.json();
+}
+
+/** GET /api/escritorio — nome do escritório da sessão. */
+export async function listarEscritorio(): Promise<{ nome: string }> {
+  const response = await fetch("/api/escritorio");
+  if (!response.ok) {
+    throw new Error(await extrairMensagemDeErro(response, "Não foi possível carregar o escritório."));
+  }
+  return response.json();
+}
+
+/** PATCH /api/escritorio — renomeia o escritório (só o responsável). */
+export async function atualizarEscritorio(nome: string): Promise<{ nome: string }> {
+  const response = await fetch("/api/escritorio", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nome }),
+  });
+  if (!response.ok) {
+    throw new Error(await extrairMensagemDeErro(response, "Não foi possível atualizar o escritório."));
   }
   return response.json();
 }
@@ -409,8 +428,8 @@ export type ModeloRecorrenciaPayload = {
   mesReferencia?: number;
   empresaId?: string | null;
   responsavelIds?: string[];
-  repeticoesQuantidade?: number | null;
-  repeticoesUnidade?: UnidadeRepeticao | null;
+  repeteInicio?: string | null;
+  repeteFim?: string | null;
 };
 
 /** POST /api/modelos-recorrencia — cria um modelo de recorrência (tarefas são geradas sob demanda ao abrir o calendário). */
@@ -437,8 +456,8 @@ export type ModeloRecorrenciaPatch = Partial<{
   mesReferencia: number;
   empresaId: string | null;
   responsavelIds: string[];
-  repeticoesQuantidade: number | null;
-  repeticoesUnidade: UnidadeRepeticao | null;
+  repeteInicio: string | null;
+  repeteFim: string | null;
   ativo: boolean;
 }>;
 
