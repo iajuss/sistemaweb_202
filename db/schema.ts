@@ -89,8 +89,22 @@ export const modelosRecorrencia = pgTable("modelos_recorrencia", {
   tipo: text("tipo").notNull(),
   periodicidade: text("periodicidade").notNull(),
   diaReferencia: integer("dia_referencia").notNull(),
+  // Só usado quando periodicidade = "semanal": um ou mais dias da semana
+  // (1=segunda...7=domingo). Nulo para as demais periodicidades.
+  diasSemana: integer("dias_semana").array(),
+  // Só usado quando periodicidade = "anual": mês do vencimento (1-12). Nulo
+  // em modelos anuais criados antes desta coluna existir — nesse caso,
+  // calcularVencimentosDoModelo cai de volta para o mês de criadoEm (ver
+  // lib/tarefas.ts).
+  mesReferencia: integer("mes_referencia"),
   responsavelId: uuid("responsavel_id").references(() => perfis.id),
   ativo: boolean("ativo").notNull().default(true),
+  // Fim da recorrência por duração (ex.: "repetir por 2 meses"), a partir de
+  // criadoEm. Ambos nulos = repete indefinidamente (comportamento padrão,
+  // igual ao de antes desta coluna existir). Ver calcularVencimentosDoModelo
+  // em lib/tarefas.ts.
+  repeticoesQuantidade: integer("repeticoes_quantidade"),
+  repeticoesUnidade: text("repeticoes_unidade"),
   criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().default(sql`now()`),
 });
 
