@@ -3,10 +3,10 @@
 import { ClipboardEvent, FormEvent, KeyboardEvent, lazy, ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { extrairCNPJDoTexto, validarCNPJ } from "../lib/cnpj";
 import {
-  atualizarEmpresa, consultarCNPJ, excluirEmpresa,
-  executarAuditoria, formatarSocio, listarDivergencias, listarEmpresas, listarPerfis,
+  atualizarEmpresa, atualizarMembroEquipe, consultarCNPJ, convidarFuncionario, excluirEmpresa,
+  executarAuditoria, formatarSocio, listarDivergencias, listarEmpresas, listarEquipe, listarPerfis,
   listarTarefas, paraSocioPayload, salvarEmpresa, tratarDivergencia,
-  type Divergencia, type Empresa, type SocioPayload, type Tarefa,
+  type Divergencia, type Empresa, type MembroEquipe, type Papel, type SocioPayload, type Tarefa,
 } from "../src/services/portfolio";
 import { AccessibleModal, useAccessibleMenu, useDismissOnViewportChange } from "./accessibility";
 import { Calendar } from "./calendar-view";
@@ -200,7 +200,7 @@ function Empty({ title = "Nenhum resultado encontrado", text = "Ajuste seus filt
   return <div className="empty"><span aria-hidden="true">⌕</span><strong>{title}</strong><p>{text}</p></div>;
 }
 
-export function HomeClient({ userName, userEmail }: { userName: string; userEmail: string }) {
+export function HomeClient({ userName, userEmail, papel }: { userName: string; userEmail: string; papel: Papel }) {
   const [view, setView] = useState<View>("Visão geral");
   const [menuOpen, setMenuOpen] = useState(false);
   const mobileMenuRef = useRef<HTMLElement>(null);
@@ -285,7 +285,7 @@ export function HomeClient({ userName, userEmail }: { userName: string; userEmai
     view === "Auditoria" ? <Audit issues={issues} setIssues={setIssues} companies={companies} setCompanies={setCompanies} perfis={perfis} /> :
     view === "Análise" ? <Analysis companies={companies} /> :
     view === "Calendário" ? <Calendar tasks={tasks} setTasks={atualizarTarefas} companies={companies} perfis={perfis} /> :
-    <Settings userName={userName} userEmail={userEmail} />
+    <Settings userName={userName} userEmail={userEmail} papel={papel} />
   );
 
   return <main className={`app-shell ${sidebarCollapsed ? "sidebar-is-collapsed" : ""}`}>
@@ -314,7 +314,7 @@ export function HomeClient({ userName, userEmail }: { userName: string; userEmai
 
 function Loading() { return <div className="loading-grid" role="status" aria-live="polite" aria-label="Carregando dados">{Array.from({ length: 8 }).map((_, i) => <div className="skeleton" key={i} />)}</div>; }
 
-function Settings({ userName, userEmail }: { userName: string; userEmail: string }) {
+function Settings({ userName, userEmail, papel }: { userName: string; userEmail: string; papel: Papel }) {
   const [senha, setSenha] = useState("");
   const [confirmacao, setConfirmacao] = useState("");
   const [message, setMessage] = useState("");
@@ -361,10 +361,63 @@ function Settings({ userName, userEmail }: { userName: string; userEmail: string
     setSavingPassword(false);
   };
 
+  const [equipe, setEquipe] = useState<MembroEquipe[]>([]);
+  const [conviteEmail, setConviteEmail] = useState("");
+  const [conviteMessage, setConviteMessage] = useState("");
+  const [convidando, setConvidando] = useState(false);
+  const [atualizandoId, setAtualizandoId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (papel === "responsavel") listarEquipe().then(setEquipe).catch(() => setEquipe([]));
+  }, [papel]);
+
+  const convidar = async (event: FormEvent) => {
+    event.preventDefault();
+    setConvidando(true); setConviteMessage("");
+    try {
+      await convidarFuncionario(conviteEmail);
+      setConviteEmail("");
+      setConviteMessage("Convite enviado com sucesso.");
+      setEquipe(await listarEquipe());
+    } catch (error) {
+      setConviteMessage(error instanceof Error ? error.message : "Não foi possível enviar o convite.");
+    } finally {
+      setConvidando(false);
+    }
+  };
+
+  const alternarAtivo = async (membro: MembroEquipe) => {
+    setAtualizandoId(membro.id);
+    try {
+      await atualizarMembroEquipe(membro.id, !membro.ativo);
+      setEquipe(await listarEquipe());
+    } finally {
+      setAtualizandoId(null);
+    }
+  };
+
   return <>
     <section className="section-head settings-heading"><div><p className="eyebrow">Conta e acessibilidade</p><h2>Configurações</h2><p>Gerencie suas informações, segurança e preferências de visualização.</p></div></section>
     <section className="settings-grid">
       <article className="panel account-card"><div className="account-avatar">{userName.slice(0, 2).toUpperCase()}</div><div><p className="settings-label">Conta conectada</p><h3>{userName}</h3><p>{userEmail}</p></div></article>
+      {papel === "responsavel" && <article className="panel settings-panel equipe-panel">
+        <div className="settings-panel-head"><span aria-hidden="true">◍</span><div><h3>Equipe</h3><p>Convide funcionários para trabalhar junto com você neste espaço.</p></div></div>
+        <form className="settings-form" onSubmit={convidar}>
+          <label>E-mail do funcionário<input type="email" required value={conviteEmail} onChange={(e) => setConviteEmail(e.target.value)} placeholder="funcionario@email.com" /></label>
+          {conviteMessage && <p className={conviteMessage.includes("sucesso") ? "settings-message success" : "settings-message error"} role={conviteMessage.includes("sucesso") ? "status" : "alert"}>{conviteMessage}</p>}
+          <button className="primary" disabled={convidando}>{convidando ? "Enviando…" : "Convidar"}</button>
+        </form>
+        <table className="equipe-table">
+          <thead><tr><th>Nome</th><th>E-mail</th><th>Papel</th><th>Status</th><th></th></tr></thead>
+          <tbody>{equipe.map((m) => <tr key={m.id}>
+            <td>{m.nome || "Convite pendente"}</td>
+            <td>{m.email}</td>
+            <td>{m.papel === "responsavel" ? "Responsável" : "Funcionário"}</td>
+            <td>{m.ativo ? "Ativo" : "Inativo"}</td>
+            <td>{m.papel === "funcionario" && <button type="button" className="secondary" disabled={atualizandoId === m.id} onClick={() => alternarAtivo(m)}>{atualizandoId === m.id ? "Aguarde…" : m.ativo ? "Desativar" : "Reativar"}</button>}</td>
+          </tr>)}</tbody>
+        </table>
+      </article>}
       <article className="panel settings-panel"><div className="settings-panel-head"><span aria-hidden="true">◉</span><div><h3>Redefinir senha</h3><p>Escolha uma nova senha com pelo menos 8 caracteres.</p></div></div><form className="settings-form" onSubmit={updatePassword}><label>Nova senha<input type="password" autoComplete="new-password" minLength={8} required value={senha} onChange={(event) => setSenha(event.target.value)} /></label><label>Confirmar nova senha<input type="password" autoComplete="new-password" minLength={8} required value={confirmacao} onChange={(event) => setConfirmacao(event.target.value)} /></label>{message && <p className={message.includes("sucesso") ? "settings-message success" : "settings-message error"} role={message.includes("sucesso") ? "status" : "alert"}>{message}</p>}<button className="primary" disabled={savingPassword}>{savingPassword ? "Atualizando…" : "Atualizar senha"}</button></form></article>
       <article className="panel settings-panel"><div className="settings-panel-head"><span aria-hidden="true">◌</span><div><h3>Modo daltonismo</h3><p>Usa a paleta Okabe–Ito e indicadores textuais para não depender apenas de vermelho e verde.</p></div></div><div className="choice-group" role="radiogroup" aria-label="Modo daltonismo"><button type="button" data-choice="default" tabIndex={vision === "default" ? 0 : -1} className={vision === "default" ? "selected" : ""} role="radio" aria-checked={vision === "default"} onKeyDown={(event) => navegarRadio(event, ["default", "colorblind"], vision, applyVision)} onClick={() => applyVision("default")}><i className="palette-default" aria-hidden="true" />Padrão</button><button type="button" data-choice="colorblind" tabIndex={vision === "colorblind" ? 0 : -1} className={vision === "colorblind" ? "selected" : ""} role="radio" aria-checked={vision === "colorblind"} onKeyDown={(event) => navegarRadio(event, ["default", "colorblind"], vision, applyVision)} onClick={() => applyVision("colorblind")}><i className="palette-colorblind" aria-hidden="true" />Daltonismo</button></div></article>
       <article className="panel settings-panel"><div className="settings-panel-head"><span aria-hidden="true">Aa</span><div><h3>Tamanho da fonte</h3><p>Ajuste a leitura do sistema neste dispositivo.</p></div></div><div className="choice-group font-choices" role="radiogroup" aria-label="Tamanho da fonte">{([ ["small", "Menor"], ["normal", "Padrão"], ["large", "Maior"] ] as const).map(([value, label]) => <button type="button" key={value} data-choice={value} tabIndex={fontSize === value ? 0 : -1} className={fontSize === value ? "selected" : ""} role="radio" aria-checked={fontSize === value} onKeyDown={(event) => navegarRadio(event, ["small", "normal", "large"], fontSize, applyFontSize)} onClick={() => applyFontSize(value)}><i className={`font-${value}`} aria-hidden="true">A</i>{label}</button>)}</div></article>
