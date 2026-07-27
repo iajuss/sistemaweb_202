@@ -6,6 +6,7 @@ import {
   listarModelosRecorrencia, listarTarefas,
   type Empresa, type ModeloRecorrencia, type Periodicidade, type Tarefa, type UnidadeRepeticao,
 } from "../src/services/portfolio";
+import { AccessibleModal, useAccessibleMenu, useDismissOnViewportChange } from "./accessibility";
 import { editarTarefa, excluirTarefa } from "../src/services/tarefas-extra";
 
 const formatDate = (date: string) => new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" }).format(new Date(`${date}T12:00:00`));
@@ -56,7 +57,7 @@ function Badge({ children, tone = "neutral" }: { children: ReactNode; tone?: str
 }
 
 function Empty({ title = "Nenhum resultado encontrado", text = "Ajuste seus filtros ou tente novamente." }) {
-  return <div className="empty"><span>⌕</span><strong>{title}</strong><p>{text}</p></div>;
+  return <div className="empty"><span aria-hidden="true">⌕</span><strong>{title}</strong><p>{text}</p></div>;
 }
 
 function descreverRecorrencia(m: ModeloRecorrencia): string {
@@ -126,7 +127,7 @@ function TarefaEditModal({ tarefa, companies, perfis, onClose, onSaved }: {
     }
   };
 
-  return <div className="modal-layer" role="dialog" aria-modal="true" aria-label={`Editar ${tarefa.titulo}`}><form className="modal" onSubmit={save}>
+  return <AccessibleModal label={`Editar ${tarefa.titulo}`} onClose={onClose}><form className="modal" onSubmit={save}>
     <button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button>
     <h2>Editar tarefa</h2>
     <label>Título<input required value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Ex.: Conferência de documentos" /></label>
@@ -142,9 +143,9 @@ function TarefaEditModal({ tarefa, companies, perfis, onClose, onSaved }: {
     <label>Responsável<select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)}><option value="">Sem responsável</option>{perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label>
     <label>Vencimento<input type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} /></label>
     {semEmpresa && <p className="inline-error">Nenhuma empresa cadastrada — cadastre uma no Onboarding para vincular tarefas externas.</p>}
-    {error && <div className="notice error"><p>{error}</p></div>}
+    {error && <div className="notice error" role="alert"><p>{error}</p></div>}
     <button className="primary" disabled={saving || semEmpresa}>{saving ? "Salvando…" : "Salvar alterações"}</button>
-  </form></div>;
+  </form></AccessibleModal>;
 }
 
 /** Modal de edição de um modelo de recorrência: título, natureza
@@ -206,7 +207,7 @@ function ModeloEditModal({ modelo, companies, perfis, onClose, onSaved }: {
     }
   };
 
-  return <div className="modal-layer" role="dialog" aria-modal="true" aria-label={`Editar ${modelo.titulo}`}><form className="modal" onSubmit={save}>
+  return <AccessibleModal label={`Editar ${modelo.titulo}`} onClose={onClose}><form className="modal" onSubmit={save}>
     <button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button>
     <h2>Editar modelo de recorrência</h2>
     <label>Título<input required value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Ex.: Fechamento da folha" /></label>
@@ -246,9 +247,9 @@ function ModeloEditModal({ modelo, companies, perfis, onClose, onSaved }: {
     {natureza === "Externa" && companies.length > 0 && <label>Empresa<select value={empresaId} onChange={(e) => setEmpresaId(e.target.value)}>{companies.map((c) => <option key={c.id} value={c.id}>{c.fantasia}</option>)}</select></label>}
     <label>Responsável<select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)}><option value="">Sem responsável</option>{perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label>
     {semEmpresa && <p className="inline-error">Nenhuma empresa cadastrada — cadastre uma no Onboarding para vincular modelos externos.</p>}
-    {error && <div className="notice error"><p>{error}</p></div>}
+    {error && <div className="notice error" role="alert"><p>{error}</p></div>}
     <button className="primary" disabled={saving || semEmpresa}>{saving ? "Salvando…" : "Salvar alterações"}</button>
-  </form></div>;
+  </form></AccessibleModal>;
 }
 
 export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa[]; setTasks: (tasks: Tarefa[]) => void; companies: Empresa[]; perfis: { id: string; nome: string }[] }) {
@@ -288,6 +289,9 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
   const [detalhe, setDetalhe] = useState<Tarefa | null>(null);
   const [menuTaskId, setMenuTaskId] = useState<string | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number } | null>(null);
+  const dismissTaskMenu = () => { setMenuTaskId(null); setMenuAnchor(null); };
+  const menuAcessivel = useAccessibleMenu(Boolean(menuTaskId), dismissTaskMenu);
+  useDismissOnViewportChange(Boolean(menuTaskId), menuAcessivel.fechar);
   const [editingTask, setEditingTask] = useState<Tarefa | null>(null);
   const [deletingTask, setDeletingTask] = useState<Tarefa | null>(null);
   const [deleteSaving, setDeleteSaving] = useState(false);
@@ -436,12 +440,13 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
   };
 
   const toggleTaskMenu = (id: string, target: HTMLElement) => {
-    if (menuTaskId === id) { setMenuTaskId(null); setMenuAnchor(null); return; }
+    if (menuTaskId === id) { menuAcessivel.fechar(); return; }
+    menuAcessivel.rememberOpener(target);
     const rect = target.getBoundingClientRect();
     setMenuAnchor({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
     setMenuTaskId(id);
   };
-  const closeTaskMenu = () => { setMenuTaskId(null); setMenuAnchor(null); };
+  const closeTaskMenu = menuAcessivel.fechar;
 
   const irMes = (delta: number) => {
     let m = viewMes + delta;
@@ -605,7 +610,7 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
 
   return <>
     <section className="section-head"><div><h2>Calendário contábil</h2><p>{mesLabel} · obrigações e rotinas da carteira.</p></div><button className="primary" onClick={abrirNovaTarefa}>+ Nova tarefa</button></section>
-    {taskError && <div className="notice error"><p>{taskError}</p></div>}
+    {taskError && <div className="notice error" role="alert"><p>{taskError}</p></div>}
 
     <section className="calendar-nav">
       <div className="calendar-nav-group">
@@ -622,13 +627,13 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
 
     <section className="calendar-toolbar"><div className="tabs"><button className={mode === "month" ? "selected" : ""} onClick={() => setMode("month")}>Calendário</button><button className={mode === "list" ? "selected" : ""} onClick={() => setMode("list")}>Lista</button></div><label>Responsável <select value={responsible} onChange={(e) => setResponsible(e.target.value)}>{people.map((p) => <option key={p}>{p}</option>)}</select></label></section>
 
-    {monthLoading ? <section className="panel"><div className="empty"><span>◷</span><strong>Carregando {mesLabel.toLowerCase()}…</strong><p>Buscando as tarefas deste mês.</p></div></section> : mode === "month" ? <section className="calendar"><div className="weekdays">{["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((d) => <span key={d}>{d}</span>)}</div><div className="day-grid">{Array.from({ length: primeiroDiaSemana }, (_, i) => <div className="day muted" key={`blank-${i}`} />)}{monthDays.map((day) => { const date = `${mesISO}-${pad2(day)}`; const items = shown.filter((t) => t.vencimento === date); const holiday = items.find((t) => t.coincideComFeriado)?.coincideComFeriado ?? null; const ehHoje = isMesAtual && date === dataHojeISO; return <div className={`day ${holiday ? "holiday" : ""} ${ehHoje ? "is-today" : ""}`} key={day}><span>{day}</span>{holiday && <small title={holiday.nome}>Feriado</small>}{items.map((t) => <button className={`calendar-task ${t.status === "Atrasada" ? "late" : ""} ${t.status === "Concluída" ? "done" : ""}`} key={t.id} title="Ver detalhes" onClick={() => setDetalhe(t)}>{t.titulo}</button>)}</div>; })}</div></section> : <section className="panel list-tasks">{shown.map((t) => <div className="task-line" key={t.id}><time>{formatDate(t.vencimento)}</time><div><strong>{t.titulo}</strong><small>{nomeEmpresaTarefa(t)} · {t.responsavel || "Sem responsável"}</small></div>{t.coincideComFeriado && <Badge tone="warning">Feriado: {t.coincideComFeriado.nome}</Badge>}<Badge tone={t.status === "Atrasada" ? "danger" : t.status === "Concluída" ? "success" : "blue"}>{t.status}</Badge><div className="row-menu"><button className="icon-button" aria-label={`Mais opções — ${t.titulo}`} onClick={(e) => toggleTaskMenu(t.id, e.currentTarget)}>⋯</button>{menuTaskId === t.id && menuAnchor && <>
+    {monthLoading ? <section className="panel" role="status" aria-live="polite"><div className="empty"><span aria-hidden="true">◷</span><strong>Carregando {mesLabel.toLowerCase()}…</strong><p>Buscando as tarefas deste mês.</p></div></section> : mode === "month" ? <section className="calendar"><div className="weekdays">{["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((d) => <span key={d}>{d}</span>)}</div><div className="day-grid">{Array.from({ length: primeiroDiaSemana }, (_, i) => <div className="day muted" key={`blank-${i}`} />)}{monthDays.map((day) => { const date = `${mesISO}-${pad2(day)}`; const items = shown.filter((t) => t.vencimento === date); const holiday = items.find((t) => t.coincideComFeriado)?.coincideComFeriado ?? null; const ehHoje = isMesAtual && date === dataHojeISO; return <div className={`day ${holiday ? "holiday" : ""} ${ehHoje ? "is-today" : ""}`} key={day}><span>{day}</span>{holiday && <small title={holiday.nome}>Feriado</small>}{items.map((t) => <button className={`calendar-task ${t.status === "Atrasada" ? "late" : ""} ${t.status === "Concluída" ? "done" : ""}`} key={t.id} title="Ver detalhes" onClick={() => setDetalhe(t)}>{t.titulo}</button>)}</div>; })}</div></section> : <section className="panel list-tasks">{shown.map((t) => <div className="task-line" key={t.id}><time>{formatDate(t.vencimento)}</time><div><strong>{t.titulo}</strong><small>{nomeEmpresaTarefa(t)} · {t.responsavel || "Sem responsável"}</small></div>{t.coincideComFeriado && <Badge tone="warning">Feriado: {t.coincideComFeriado.nome}</Badge>}<Badge tone={t.status === "Atrasada" ? "danger" : t.status === "Concluída" ? "success" : "blue"}>{t.status}</Badge><div className="row-menu"><button className="icon-button" aria-label={`Mais opções — ${t.titulo}`} onClick={(e) => toggleTaskMenu(t.id, e.currentTarget)}>⋯</button>{menuTaskId === t.id && menuAnchor && <>
       <button type="button" className="menu-backdrop" aria-label="Fechar menu" onClick={closeTaskMenu} />
-      <div className="dropdown-menu" role="menu" style={{ top: menuAnchor.top, right: menuAnchor.right }}>{t.status !== "Concluída" && <button type="button" role="menuitem" disabled={concluindoId === t.id} onClick={() => { closeTaskMenu(); concluir(t.id); }}>{concluindoId === t.id ? "Concluindo…" : "Concluir"}</button>}<button type="button" role="menuitem" onClick={() => { closeTaskMenu(); setEditingTask(t); }}>Editar</button><button type="button" role="menuitem" className="danger" onClick={() => { closeTaskMenu(); setDeletingTask(t); setDeleteError(""); }}>Excluir</button></div>
+      <div ref={menuAcessivel.menuRef} className="dropdown-menu" role="menu" onKeyDown={menuAcessivel.aoTeclar} style={{ top: menuAnchor.top, right: menuAnchor.right }}>{t.status !== "Concluída" && <button type="button" role="menuitem" disabled={concluindoId === t.id} onClick={() => { dismissTaskMenu(); concluir(t.id); }}>{concluindoId === t.id ? "Concluindo…" : "Concluir"}</button>}<button type="button" role="menuitem" onClick={() => { dismissTaskMenu(); setEditingTask(t); }}>Editar</button><button type="button" role="menuitem" className="danger" onClick={() => { dismissTaskMenu(); setDeletingTask(t); setDeleteError(""); }}>Excluir</button></div>
     </>}</div></div>)}{shown.length === 0 && <Empty title="Nenhuma tarefa neste mês" text="Cadastre uma tarefa avulsa ou um modelo de recorrência." />}</section>}
 
-    {detalhe && <div className="modal-layer" role="dialog" aria-modal="true" aria-label={`Detalhes — ${detalhe.titulo}`} onClick={() => setDetalhe(null)}>
-      <div className="task-popover" onClick={(e) => e.stopPropagation()}>
+    {detalhe && <AccessibleModal label={`Detalhes — ${detalhe.titulo}`} onClose={() => setDetalhe(null)}>
+      <div className="task-popover">
         <div className="task-popover-head"><strong>{detalhe.titulo}</strong><button type="button" className="close" onClick={() => setDetalhe(null)} aria-label="Fechar">×</button></div>
         <dl className="task-popover-body">
           <div><dt>Natureza</dt><dd>{naturezaTarefa(detalhe)}</dd></div>
@@ -644,13 +649,13 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
           <button type="button" className="danger" onClick={() => { const t = detalhe; setDetalhe(null); setDeletingTask(t); setDeleteError(""); }}>Excluir</button>
         </div>
       </div>
-    </div>}
+    </AccessibleModal>}
 
     <section className="section-head"><div><h2>Modelos recorrentes</h2><p>Tarefas geradas automaticamente todo mês, conforme a periodicidade.</p></div><button className="primary" onClick={abrirNovoModelo}>+ Novo modelo</button></section>
-    {modeloError && <div className="notice error"><p>{modeloError}</p></div>}
+    {modeloError && <div className="notice error" role="alert"><p>{modeloError}</p></div>}
     <section className="panel table-wrap">
       <table>
-        <thead><tr><th>Título</th><th>Tipo</th><th>Periodicidade</th><th>Empresa</th><th>Responsável</th><th>Situação</th><th></th></tr></thead>
+        <thead><tr><th scope="col">Título</th><th scope="col">Tipo</th><th scope="col">Periodicidade</th><th scope="col">Empresa</th><th scope="col">Responsável</th><th scope="col">Situação</th><th scope="col"><span className="sr-only">Ações</span></th></tr></thead>
         <tbody>
           {modelos.map((m) => <tr key={m.id}>
             <td><strong>{m.titulo}</strong></td>
@@ -672,7 +677,7 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
       {modelosCarregados && modelos.length === 0 && <Empty title="Nenhum modelo de recorrência" text="Cadastre um modelo para gerar tarefas automaticamente." />}
     </section>
 
-    {open && <div className="modal-layer" role="dialog" aria-modal="true" aria-label="Nova tarefa"><form className="modal" onSubmit={add}>
+    {open && <AccessibleModal label="Nova tarefa" onClose={() => setOpen(false)}><form className="modal" onSubmit={add}>
       <button type="button" className="close" onClick={() => setOpen(false)} aria-label="Fechar">×</button>
       <h2>Nova tarefa</h2>
       <p>Cadastre uma obrigação avulsa da carteira.</p>
@@ -690,9 +695,9 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
       <label>Vencimento<input type="date" value={draft.vencimento} onChange={(e) => setDraft({ ...draft, vencimento: e.target.value })} /></label>
       {semEmpresaExterna && <p className="inline-error">Nenhuma empresa cadastrada — cadastre uma no Onboarding para criar tarefas externas.</p>}
       <button className="primary" disabled={saving || semEmpresaExterna}>{saving ? "Salvando…" : "Salvar tarefa"}</button>
-    </form></div>}
+    </form></AccessibleModal>}
 
-    {modeloOpen && <div className="modal-layer" role="dialog" aria-modal="true" aria-label="Novo modelo de recorrência"><form className="modal" onSubmit={criarModelo}>
+    {modeloOpen && <AccessibleModal label="Novo modelo de recorrência" onClose={() => setModeloOpen(false)}><form className="modal" onSubmit={criarModelo}>
       <button type="button" className="close" onClick={() => setModeloOpen(false)} aria-label="Fechar">×</button>
       <h2>Novo modelo de recorrência</h2>
       <p>Gera tarefas automaticamente a cada mês, ao abrir o calendário.</p>
@@ -734,14 +739,14 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
       <label>Responsável<select value={modeloDraft.responsavelId} onChange={(e) => setModeloDraft({ ...modeloDraft, responsavelId: e.target.value })}><option value="">Sem responsável</option>{perfis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label>
       {semEmpresaExternaModelo && <p className="inline-error">Nenhuma empresa cadastrada — cadastre uma no Onboarding para criar modelos externos.</p>}
       <button className="primary" disabled={modeloSaving || semEmpresaExternaModelo}>{modeloSaving ? "Salvando…" : "Salvar modelo"}</button>
-    </form></div>}
+    </form></AccessibleModal>}
 
     {editingTask && <TarefaEditModal tarefa={editingTask} companies={companies} perfis={perfis} onClose={() => setEditingTask(null)} onSaved={handleTarefaEditada} />}
 
-    {deletingTask && <div className="modal-layer" role="dialog" aria-modal="true" aria-label="Confirmar exclusão"><div className="modal"><button type="button" className="close" onClick={() => setDeletingTask(null)} aria-label="Fechar">×</button><h2>Excluir tarefa</h2><p>Tem certeza que deseja excluir <strong>{deletingTask.titulo}</strong>? {deletingTask.modeloId ? "Essa ocorrência será removida do calendário e não voltará a ser gerada — as próximas datas do modelo de recorrência continuam normalmente." : "Essa ação não pode ser desfeita."}</p>{deleteError && <div className="notice error"><p>{deleteError}</p></div>}<button type="button" className="primary danger" onClick={confirmDeleteTask} disabled={deleteSaving}>{deleteSaving ? "Excluindo…" : "Excluir definitivamente"}</button></div></div>}
+    {deletingTask && <AccessibleModal label="Confirmar exclusão" onClose={() => setDeletingTask(null)}><div className="modal"><button type="button" className="close" onClick={() => setDeletingTask(null)} aria-label="Fechar">×</button><h2>Excluir tarefa</h2><p>Tem certeza que deseja excluir <strong>{deletingTask.titulo}</strong>? {deletingTask.modeloId ? "Essa ocorrência será removida do calendário e não voltará a ser gerada — as próximas datas do modelo de recorrência continuam normalmente." : "Essa ação não pode ser desfeita."}</p>{deleteError && <div className="notice error" role="alert"><p>{deleteError}</p></div>}<button type="button" className="primary danger" onClick={confirmDeleteTask} disabled={deleteSaving}>{deleteSaving ? "Excluindo…" : "Excluir definitivamente"}</button></div></AccessibleModal>}
 
     {editingModelo && <ModeloEditModal modelo={editingModelo} companies={companies} perfis={perfis} onClose={() => setEditingModelo(null)} onSaved={handleModeloEditado} />}
 
-    {deletingModelo && <div className="modal-layer" role="dialog" aria-modal="true" aria-label="Confirmar exclusão"><div className="modal"><button type="button" className="close" onClick={() => setDeletingModelo(null)} aria-label="Fechar">×</button><h2>Excluir modelo de recorrência</h2><p>Tem certeza que deseja excluir <strong>{deletingModelo.titulo}</strong>? Todas as tarefas já geradas por este modelo somem do calendário junto. Essa ação não pode ser desfeita.</p>{deleteModeloError && <div className="notice error"><p>{deleteModeloError}</p></div>}<button type="button" className="primary danger" onClick={confirmDeleteModelo} disabled={deleteModeloSaving}>{deleteModeloSaving ? "Excluindo…" : "Excluir definitivamente"}</button></div></div>}
+    {deletingModelo && <AccessibleModal label="Confirmar exclusão" onClose={() => setDeletingModelo(null)}><div className="modal"><button type="button" className="close" onClick={() => setDeletingModelo(null)} aria-label="Fechar">×</button><h2>Excluir modelo de recorrência</h2><p>Tem certeza que deseja excluir <strong>{deletingModelo.titulo}</strong>? Todas as tarefas já geradas por este modelo somem do calendário junto. Essa ação não pode ser desfeita.</p>{deleteModeloError && <div className="notice error" role="alert"><p>{deleteModeloError}</p></div>}<button type="button" className="primary danger" onClick={confirmDeleteModelo} disabled={deleteModeloSaving}>{deleteModeloSaving ? "Excluindo…" : "Excluir definitivamente"}</button></div></AccessibleModal>}
   </>;
 }
