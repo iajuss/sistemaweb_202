@@ -18,7 +18,6 @@
  */
 import type { createServerClient } from "@supabase/ssr";
 import { garantirFeriadosDoAno, type Feriado } from "./feriados.ts";
-import type { UnidadeRepeticao } from "./modelos-recorrencia.ts";
 
 type SupabaseClient = ReturnType<typeof createServerClient>;
 
@@ -62,8 +61,8 @@ type ModeloRecorrenciaParaGeracao = {
   dia_referencia: number;
   dias_semana: number[] | null;
   mes_referencia: number | null;
-  repeticoes_quantidade: number | null;
-  repeticoes_unidade: string | null;
+  repete_inicio: string | null;
+  repete_fim: string | null;
   criado_em: string;
   responsaveis: { perfil_id: string }[];
 };
@@ -127,21 +126,6 @@ export function mesAtual(): string {
 }
 
 /**
- * Primeiro dia em que um modelo com fim por duração já NÃO gera mais
- * vencimentos: `criadoEm + quantidade unidade`, no formato "YYYY-MM-DD".
- * Comparável por ordem lexicográfica com os vencimentos calculados (mesmo
- * formato) — o corte é exclusivo (ver uso abaixo).
- */
-function calcularDataFimRecorrencia(criadoEm: string, quantidade: number, unidade: UnidadeRepeticao): string {
-  const inicio = new Date(criadoEm);
-  const fim = new Date(Date.UTC(inicio.getUTCFullYear(), inicio.getUTCMonth(), inicio.getUTCDate()));
-  if (unidade === "dias") fim.setUTCDate(fim.getUTCDate() + quantidade);
-  else if (unidade === "meses") fim.setUTCMonth(fim.getUTCMonth() + quantidade);
-  else fim.setUTCFullYear(fim.getUTCFullYear() + quantidade);
-  return formatarData(fim.getUTCFullYear(), fim.getUTCMonth() + 1, fim.getUTCDate());
-}
-
-/**
  * Função pura (sem I/O) que calcula as datas de vencimento de um modelo de
  * recorrência dentro de um mês pedido. Isolada de `gerarTarefasDoMes` para
  * ser testável sem banco — ver `tests/tarefas.test.mjs`.
@@ -160,11 +144,11 @@ function calcularDataFimRecorrencia(criadoEm: string, quantidade: number, unidad
  *   deveria ocorrer, já que a validação de POST/PATCH de modelos restringe
  *   os valores possíveis).
  *
- * Quando `repeticoesQuantidade`/`repeticoesUnidade` são informados (os dois
- * juntos — ver `validarRepeticoes` em `lib/modelos-recorrencia.ts`), datas a
- * partir de `criadoEm + repeticoesQuantidade repeticoesUnidade` (exclusive)
- * são descartadas — a recorrência "se repete por 2 meses / 5 dias / 1 ano"
- * em vez de indefinidamente.
+ * Quando `repeteInicio`/`repeteFim` são informados (os dois juntos — ver
+ * `validarPeriodoRepeticao` em `lib/modelos-recorrencia.ts`), datas fora
+ * desse intervalo (inclusive) são descartadas — a recorrência "repete só
+ * entre estas duas datas" em vez de indefinidamente. `repeteInicio` pode ser
+ * uma data futura, adiando o começo da geração.
  */
 export function calcularVencimentosDoModelo(params: {
   periodicidade: string;
@@ -173,8 +157,8 @@ export function calcularVencimentosDoModelo(params: {
   criadoEm: string; // ISO date ou timestamp
   diasSemana?: number[] | null;
   mesReferencia?: number | null;
-  repeticoesQuantidade?: number | null;
-  repeticoesUnidade?: UnidadeRepeticao | null;
+  repeteInicio?: string | null;
+  repeteFim?: string | null;
 }): string[] {
   const [anoStr, mesStr] = params.mes.split("-");
   const ano = Number(anoStr);
@@ -208,11 +192,10 @@ export function calcularVencimentosDoModelo(params: {
     }
   }
 
-  if (params.repeticoesQuantidade && params.repeticoesUnidade) {
-    // Corte exclusivo: "repetir por 5 dias" a partir de criadoEm cobre os
-    // dias 1 a 5, não o 6º (criadoEm + 5 dias já é o dia seguinte ao fim).
-    const fim = calcularDataFimRecorrencia(params.criadoEm, params.repeticoesQuantidade, params.repeticoesUnidade);
-    datas = datas.filter((data) => data < fim);
+  const repeteInicio = params.repeteInicio ?? null;
+  const repeteFim = params.repeteFim ?? null;
+  if (repeteInicio || repeteFim) {
+    datas = datas.filter((data) => (!repeteInicio || data >= repeteInicio) && (!repeteFim || data <= repeteFim));
   }
 
   return datas;
@@ -270,7 +253,7 @@ export function calcularVencimentosDoModelo(params: {
 export async function gerarTarefasDoMes(supabase: SupabaseClient, escritorioId: string, mes: string): Promise<void> {
   const { data: modelos, error: modelosError } = await supabase
     .from("modelos_recorrencia")
-    .select("id, empresa_id, titulo, tipo, periodicidade, dia_referencia, dias_semana, mes_referencia, repeticoes_quantidade, repeticoes_unidade, criado_em, responsaveis:modelos_recorrencia_responsaveis(perfil_id)")
+    .select("id, empresa_id, titulo, tipo, periodicidade, dia_referencia, dias_semana, mes_referencia, repete_inicio, repete_fim, criado_em, responsaveis:modelos_recorrencia_responsaveis(perfil_id)")
     .eq("escritorio_id", escritorioId)
     .eq("ativo", true);
 
@@ -287,8 +270,8 @@ export async function gerarTarefasDoMes(supabase: SupabaseClient, escritorioId: 
       criadoEm: modelo.criado_em,
       diasSemana: modelo.dias_semana,
       mesReferencia: modelo.mes_referencia,
-      repeticoesQuantidade: modelo.repeticoes_quantidade,
-      repeticoesUnidade: modelo.repeticoes_unidade as UnidadeRepeticao | null,
+      repeteInicio: modelo.repete_inicio,
+      repeteFim: modelo.repete_fim,
     });
 
     for (const vencimento of vencimentos) {

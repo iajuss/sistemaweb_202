@@ -207,9 +207,9 @@ test("diario: gera um vencimento para cada dia do mês", () => {
   assert.equal(vencimentos[27], "2026-02-28");
 });
 
-// --- repetições (fim por duração) -------------------------------------------
+// --- repetições (início/fim por data) --------------------------------------
 
-test("repetições: sem quantidade/unidade, repete indefinidamente (comportamento padrão)", () => {
+test("repetições: sem início/fim, repete indefinidamente (comportamento padrão)", () => {
   const vencimentos = calcularVencimentosDoModelo({
     periodicidade: "diario",
     diaReferencia: 1,
@@ -219,26 +219,26 @@ test("repetições: sem quantidade/unidade, repete indefinidamente (comportament
   assert.equal(vencimentos.length, 31);
 });
 
-test("repetições: 'diario' por 5 dias corta as datas após o 5º dia a partir de criadoEm", () => {
+test("repetições: 'diario' com fim no 5º dia corta as datas depois dele", () => {
   const vencimentos = calcularVencimentosDoModelo({
     periodicidade: "diario",
     diaReferencia: 1,
     mes: "2026-07",
     criadoEm: "2026-07-01T00:00:00Z",
-    repeticoesQuantidade: 5,
-    repeticoesUnidade: "dias",
+    repeteInicio: "2026-07-01",
+    repeteFim: "2026-07-05",
   });
   assert.deepEqual(vencimentos, ["2026-07-01", "2026-07-02", "2026-07-03", "2026-07-04", "2026-07-05"]);
 });
 
-test("repetições: 'mensal' por 2 meses ainda gera no mês seguinte, mas não no terceiro", () => {
+test("repetições: 'mensal' com fim no mês seguinte ainda gera nele, mas não no terceiro", () => {
   const noSegundoMes = calcularVencimentosDoModelo({
     periodicidade: "mensal",
     diaReferencia: 10,
     mes: "2026-08",
     criadoEm: "2026-07-10T00:00:00Z",
-    repeticoesQuantidade: 2,
-    repeticoesUnidade: "meses",
+    repeteInicio: "2026-07-10",
+    repeteFim: "2026-08-31",
   });
   assert.deepEqual(noSegundoMes, ["2026-08-10"]);
 
@@ -247,20 +247,20 @@ test("repetições: 'mensal' por 2 meses ainda gera no mês seguinte, mas não n
     diaReferencia: 10,
     mes: "2026-09",
     criadoEm: "2026-07-10T00:00:00Z",
-    repeticoesQuantidade: 2,
-    repeticoesUnidade: "meses",
+    repeteInicio: "2026-07-10",
+    repeteFim: "2026-08-31",
   });
   assert.deepEqual(noTerceiroMes, []);
 });
 
-test("repetições: 'anual' por 1 ano gera só no primeiro ano, não no segundo", () => {
+test("repetições: 'anual' com fim antes do segundo ano não gera nele", () => {
   const noPrimeiroAno = calcularVencimentosDoModelo({
     periodicidade: "anual",
     diaReferencia: 15,
     mes: "2026-05",
     criadoEm: "2026-05-15T00:00:00Z",
-    repeticoesQuantidade: 1,
-    repeticoesUnidade: "anos",
+    repeteInicio: "2026-05-15",
+    repeteFim: "2027-05-14",
   });
   assert.deepEqual(noPrimeiroAno, ["2026-05-15"]);
 
@@ -269,10 +269,32 @@ test("repetições: 'anual' por 1 ano gera só no primeiro ano, não no segundo"
     diaReferencia: 15,
     mes: "2027-05",
     criadoEm: "2026-05-15T00:00:00Z",
-    repeticoesQuantidade: 1,
-    repeticoesUnidade: "anos",
+    repeteInicio: "2026-05-15",
+    repeteFim: "2027-05-14",
   });
   assert.deepEqual(noSegundoAno, []);
+});
+
+test("repetições: repeteInicio no futuro não gera antes dele", () => {
+  const antesDoInicio = calcularVencimentosDoModelo({
+    periodicidade: "diario",
+    diaReferencia: 1,
+    mes: "2026-07",
+    criadoEm: "2026-01-01T00:00:00Z",
+    repeteInicio: "2026-08-01",
+    repeteFim: null,
+  });
+  assert.deepEqual(antesDoInicio, []);
+
+  const depoisDoInicio = calcularVencimentosDoModelo({
+    periodicidade: "diario",
+    diaReferencia: 1,
+    mes: "2026-08",
+    criadoEm: "2026-01-01T00:00:00Z",
+    repeteInicio: "2026-08-01",
+    repeteFim: null,
+  });
+  assert.equal(depoisDoInicio.length, 31);
 });
 
 // --- defensivo ------------------------------------------------------------
