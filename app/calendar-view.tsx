@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, ReactNode, useEffect, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import {
   atualizarModeloRecorrencia, atualizarTarefa, criarModeloRecorrencia, criarTarefa, excluirModeloRecorrencia,
   listarModelosRecorrencia, listarTarefas,
@@ -104,8 +104,25 @@ function RepeticaoRangePicker({ inicio, fim, onChange }: {
   inicio: string | null; fim: string | null; onChange: (inicio: string | null, fim: string | null) => void;
 }) {
   const [aberto, setAberto] = useState(false);
+  // Sem useDismissOnViewportChange aqui: diferente dos outros menus (que
+  // ficam com `position:fixed` numa coordenada guardada, ficando errados se
+  // a página rolar), este popover é `position:absolute` relativo ao próprio
+  // container — rola junto com o modal naturalmente, e fechar ao rolar
+  // impediria o usuário de dar scroll na tela enquanto escolhe as datas.
   const menuAcessivel = useAccessibleMenu(aberto, () => setAberto(false));
-  useDismissOnViewportChange(aberto, menuAcessivel.fechar);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!aberto) return;
+    const aoClicarFora = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setAberto(false);
+      }
+    };
+    document.addEventListener("mousedown", aoClicarFora);
+    return () => document.removeEventListener("mousedown", aoClicarFora);
+  }, [aberto]);
+
   const hoje = new Date();
   const [esquerdaAno, setEsquerdaAno] = useState(hoje.getFullYear());
   const [esquerdaMes, setEsquerdaMes] = useState(hoje.getMonth());
@@ -124,11 +141,13 @@ function RepeticaoRangePicker({ inicio, fim, onChange }: {
   };
 
   const clicarDia = (dia: string) => {
-    if (!selecaoInicio || selecaoFim) {
+    if (!selecaoInicio) {
       setSelecaoInicio(dia);
-      setSelecaoFim(null);
       return;
     }
+    // Com início e fim já escolhidos, um novo clique só ajusta o fim (ou
+    // vira o novo início, se for anterior) — nunca reseta a seleção
+    // sozinho. Pra recomeçar do zero, o usuário usa "Apagar".
     if (dia < selecaoInicio) {
       setSelecaoFim(selecaoInicio);
       setSelecaoInicio(dia);
@@ -166,23 +185,20 @@ function RepeticaoRangePicker({ inicio, fim, onChange }: {
     })}</div>
   </div>;
 
-  return <div className="repeticao-range">
+  return <div className="repeticao-range" ref={containerRef}>
     <button type="button" className="secondary repeticao-range-trigger" onClick={abrir}>
       {inicio && fim ? `${formatDataCurta(inicio)} – ${formatDataCurta(fim)}` : "Selecionar período"}
     </button>
-    {aberto && <>
-      <button type="button" className="menu-backdrop" aria-label="Fechar" onClick={() => setAberto(false)} />
-      <div ref={menuAcessivel.menuRef} className="range-popover" role="dialog" aria-label="Selecionar período" onKeyDown={menuAcessivel.aoTeclar} onMouseLeave={() => setHoverDia(null)}>
-        <div className="range-calendars">
-          {renderCalendario(esquerdaAno, esquerdaMes, setEsquerdaAno, setEsquerdaMes, "Calendário de início")}
-          {renderCalendario(direitaAno, direitaMes, setDireitaAno, setDireitaMes, "Calendário de fim")}
-        </div>
-        <div className="range-popover-footer">
-          <button type="button" className="secondary" onClick={apagar}>Apagar</button>
-          <button type="button" className="primary" onClick={aplicar}>Aplicar</button>
-        </div>
+    {aberto && <div ref={menuAcessivel.menuRef} className="range-popover" role="dialog" aria-label="Selecionar período" onKeyDown={menuAcessivel.aoTeclar} onMouseLeave={() => setHoverDia(null)}>
+      <div className="range-calendars">
+        {renderCalendario(esquerdaAno, esquerdaMes, setEsquerdaAno, setEsquerdaMes, "Calendário de início")}
+        {renderCalendario(direitaAno, direitaMes, setDireitaAno, setDireitaMes, "Calendário de fim")}
       </div>
-    </>}
+      <div className="range-popover-footer">
+        <button type="button" className="secondary" onClick={apagar}>Apagar</button>
+        <button type="button" className="primary" onClick={aplicar}>Aplicar</button>
+      </div>
+    </div>}
   </div>;
 }
 
