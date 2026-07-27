@@ -105,7 +105,6 @@ export const modelosRecorrencia = pgTable("modelos_recorrencia", {
   // calcularVencimentosDoModelo cai de volta para o mês de criadoEm (ver
   // lib/tarefas.ts).
   mesReferencia: integer("mes_referencia"),
-  responsavelId: uuid("responsavel_id").references(() => perfis.id),
   ativo: boolean("ativo").notNull().default(true),
   // Fim da recorrência por duração (ex.: "repetir por 2 meses"), a partir de
   // criadoEm. Ambos nulos = repete indefinidamente (comportamento padrão,
@@ -127,10 +126,19 @@ export const tarefas = pgTable("tarefas", {
     .references(() => empresas.id, { onDelete: "cascade" }),
   titulo: text("titulo").notNull(),
   tipo: text("tipo").notNull(),
-  responsavelId: uuid("responsavel_id").references(() => perfis.id),
   vencimento: date("vencimento").notNull(),
   status: text("status").notNull().default("Pendente"),
   concluidoEm: timestamp("concluido_em", { withTimezone: true }),
+});
+
+export const tarefasResponsaveis = pgTable("tarefas_responsaveis", {
+  tarefaId: uuid("tarefa_id").notNull().references(() => tarefas.id, { onDelete: "cascade" }),
+  perfilId: uuid("perfil_id").notNull().references(() => perfis.id),
+});
+
+export const modelosRecorrenciaResponsaveis = pgTable("modelos_recorrencia_responsaveis", {
+  modeloId: uuid("modelo_id").notNull().references(() => modelosRecorrencia.id, { onDelete: "cascade" }),
+  perfilId: uuid("perfil_id").notNull().references(() => perfis.id),
 });
 
 export const feriadosCache = pgTable("feriados_cache", {
