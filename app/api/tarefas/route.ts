@@ -8,6 +8,7 @@ import {
   mesAtual,
   montarRespostaTarefa,
   paraShapeFrontend,
+  substituirResponsaveisTarefa,
   type TarefaRow,
 } from "@/lib/tarefas";
 
@@ -73,7 +74,9 @@ export async function GET(request: Request) {
   linhas = linhas.filter((linha) => linha.modelo === null || linha.modelo.ativo);
 
   if (responsavelFiltro) {
-    linhas = linhas.filter((linha) => (linha.responsavel?.nome ?? "").toLowerCase() === responsavelFiltro.toLowerCase());
+    linhas = linhas.filter((linha) =>
+      linha.responsaveis.some((r) => (r.perfil?.nome ?? "").toLowerCase() === responsavelFiltro.toLowerCase()),
+    );
   }
 
   const ano = Number(mes.slice(0, 4));
@@ -86,7 +89,7 @@ type TarefaPayload = {
   titulo?: string;
   tipo?: string;
   empresaId?: string | null;
-  responsavelId?: string | null;
+  responsavelIds?: string[];
   vencimento?: string;
 };
 
@@ -154,7 +157,6 @@ export async function POST(request: Request) {
       empresa_id: interna ? null : empresaId,
       titulo,
       tipo,
-      responsavel_id: payload.responsavelId ?? null,
       vencimento,
       status: "Pendente",
     })
@@ -163,6 +165,14 @@ export async function POST(request: Request) {
 
   if (insertError || !tarefaInserida) {
     return applySetCookies(Response.json({ error: "Não foi possível criar a tarefa." }, { status: 500 }));
+  }
+
+  const responsavelIds = Array.isArray(payload.responsavelIds) ? payload.responsavelIds : [];
+  if (responsavelIds.length > 0) {
+    const erroResponsaveis = await substituirResponsaveisTarefa(supabase, (tarefaInserida as { id: string }).id, responsavelIds);
+    if (erroResponsaveis) {
+      return applySetCookies(Response.json({ error: "Tarefa criada, mas não foi possível salvar os responsáveis." }, { status: 500 }));
+    }
   }
 
   const resposta = await montarRespostaTarefa(supabase, (tarefaInserida as { id: string }).id);

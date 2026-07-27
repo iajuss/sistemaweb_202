@@ -1,5 +1,5 @@
 import { createSupabaseRouteHandlerClient } from "@/lib/supabase/server";
-import { montarRespostaTarefa, type StatusTarefa } from "@/lib/tarefas";
+import { montarRespostaTarefa, substituirResponsaveisTarefa, type StatusTarefa } from "@/lib/tarefas";
 
 const VENCIMENTO_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const STATUS_VALIDOS: StatusTarefa[] = ["Pendente", "Concluída", "Cancelada"];
@@ -8,7 +8,7 @@ type TarefaPatchPayload = {
   titulo?: string;
   tipo?: string;
   empresaId?: string | null;
-  responsavelId?: string | null;
+  responsavelIds?: string[];
   status?: string;
   vencimento?: string;
 };
@@ -64,9 +64,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     updates.empresa_id = empresaId ? empresaId : null;
   }
 
-  if ("responsavelId" in payload) {
-    const responsavelId = payload.responsavelId?.trim?.() ?? payload.responsavelId;
-    updates.responsavel_id = responsavelId ? responsavelId : null;
+  let responsavelIdsPatch: string[] | null = null;
+  if ("responsavelIds" in payload) {
+    responsavelIdsPatch = Array.isArray(payload.responsavelIds) ? payload.responsavelIds : [];
   }
 
   if ("status" in payload) {
@@ -88,23 +88,32 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     updates.vencimento = vencimento;
   }
 
-  if (Object.keys(updates).length === 0) {
+  if (Object.keys(updates).length === 0 && responsavelIdsPatch === null) {
     return applySetCookies(Response.json({ error: "Nenhum campo para atualizar." }, { status: 400 }));
   }
 
-  const { data: tarefaAtualizada, error: updateError } = await supabase
-    .from("tarefas")
-    .update(updates)
-    .eq("id", id)
-    .select("id")
-    .maybeSingle();
+  if (Object.keys(updates).length > 0) {
+    const { data: tarefaAtualizada, error: updateError } = await supabase
+      .from("tarefas")
+      .update(updates)
+      .eq("id", id)
+      .select("id")
+      .maybeSingle();
 
-  if (updateError) {
-    return applySetCookies(Response.json({ error: "Não foi possível atualizar a tarefa." }, { status: 500 }));
+    if (updateError) {
+      return applySetCookies(Response.json({ error: "Não foi possível atualizar a tarefa." }, { status: 500 }));
+    }
+
+    if (!tarefaAtualizada) {
+      return applySetCookies(Response.json({ error: "Tarefa não encontrada." }, { status: 404 }));
+    }
   }
 
-  if (!tarefaAtualizada) {
-    return applySetCookies(Response.json({ error: "Tarefa não encontrada." }, { status: 404 }));
+  if (responsavelIdsPatch !== null) {
+    const erroResponsaveis = await substituirResponsaveisTarefa(supabase, id, responsavelIdsPatch);
+    if (erroResponsaveis) {
+      return applySetCookies(Response.json({ error: "Não foi possível atualizar os responsáveis da tarefa." }, { status: 500 }));
+    }
   }
 
   const resposta = await montarRespostaTarefa(supabase, id);
