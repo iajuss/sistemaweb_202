@@ -20,22 +20,22 @@ export type EmpresaRow = {
   porte: string;
   situacao_cadastral: string;
   abertura: string | null;
-  responsavel_id: string | null;
   tags: string[];
   observacoes: string;
   criado_em: string;
   atualizado_em: string;
   empresas_socios: { nome: string; papel: string }[] | null;
-  responsavel: { nome: string } | null;
+  responsaveis: { perfil: { id: string; nome: string } }[];
 };
 
-export const EMPRESA_SELECT = "*, empresas_socios(nome, papel), responsavel:perfis(nome)";
+export const EMPRESA_SELECT = "*, empresas_socios(nome, papel), responsaveis:empresas_responsaveis(perfil:perfis(id,nome))";
 
 function formatarSocio(socio: { nome: string; papel: string }): string {
   return socio.papel && socio.papel.trim() !== "" ? `${socio.nome} (${socio.papel})` : socio.nome;
 }
 
 export function paraShapeFrontend(row: EmpresaRow) {
+  const responsaveis = row.responsaveis.map((r) => r.perfil);
   return {
     id: row.id,
     cnpj: row.cnpj,
@@ -49,14 +49,33 @@ export function paraShapeFrontend(row: EmpresaRow) {
     porte: row.porte,
     status: row.situacao_cadastral,
     abertura: row.abertura,
-    responsavelId: row.responsavel_id,
-    responsavel: row.responsavel?.nome ?? "",
+    responsavelIds: responsaveis.map((p) => p.id),
+    responsaveis: responsaveis.map((p) => p.nome),
     socios: (row.empresas_socios ?? []).map(formatarSocio),
     tags: row.tags,
     observacoes: row.observacoes,
     criadoEm: row.criado_em,
     atualizadoEm: row.atualizado_em,
   };
+}
+
+/**
+ * Substitui a lista inteira de responsáveis internos de uma empresa: apaga
+ * todas as ligações existentes e insere as novas. Mesmo racional de
+ * `substituirResponsaveisTarefa` em `lib/tarefas.ts`.
+ */
+export async function substituirResponsaveisEmpresa(
+  supabase: SupabaseClient,
+  empresaId: string,
+  perfilIds: string[],
+) {
+  const { error: erroDelete } = await supabase.from("empresas_responsaveis").delete().eq("empresa_id", empresaId);
+  if (erroDelete) return erroDelete;
+  if (perfilIds.length === 0) return null;
+  const { error: erroInsert } = await supabase
+    .from("empresas_responsaveis")
+    .insert(perfilIds.map((perfilId) => ({ empresa_id: empresaId, perfil_id: perfilId })));
+  return erroInsert;
 }
 
 /**

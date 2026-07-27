@@ -1,5 +1,5 @@
 import { createSupabaseServerClient, createSupabaseRouteHandlerClient } from "@/lib/supabase/server";
-import { EMPRESA_SELECT, buscarEmpresaCompletaPorId, paraShapeFrontend, type EmpresaRow } from "@/lib/empresas";
+import { EMPRESA_SELECT, buscarEmpresaCompletaPorId, paraShapeFrontend, substituirResponsaveisEmpresa, type EmpresaRow } from "@/lib/empresas";
 
 // GET /api/empresas — lista as empresas do escritório da sessão (RLS filtra
 // por escritorio_id). Suporta ?busca= para filtrar por razão social,
@@ -46,7 +46,7 @@ type EmpresaPayload = {
   situacaoCadastral?: string;
   abertura?: string | null;
   socios?: { nome: string; papel: string }[];
-  responsavelId?: string | null;
+  responsavelIds?: string[];
   observacoes?: string;
   tags?: string[];
 };
@@ -101,7 +101,6 @@ export async function POST(request: Request) {
       porte: payload.porte ?? "",
       situacao_cadastral: payload.situacaoCadastral ?? "",
       abertura: payload.abertura ?? null,
-      responsavel_id: payload.responsavelId ?? null,
       tags: payload.tags ?? [],
       observacoes: payload.observacoes ?? "",
     })
@@ -130,6 +129,14 @@ export async function POST(request: Request) {
       // órfão (empresa sem sócios que o cliente não sabe que existe).
       await supabase.from("empresas").delete().eq("id", empresaId);
       return applySetCookies(Response.json({ error: "Não foi possível salvar os sócios da empresa." }, { status: 500 }));
+    }
+  }
+
+  const responsavelIds = Array.isArray(payload.responsavelIds) ? payload.responsavelIds : [];
+  if (responsavelIds.length > 0) {
+    const erroResponsaveis = await substituirResponsaveisEmpresa(supabase, empresaId, responsavelIds);
+    if (erroResponsaveis) {
+      return applySetCookies(Response.json({ error: "Empresa criada, mas não foi possível salvar os responsáveis." }, { status: 500 }));
     }
   }
 

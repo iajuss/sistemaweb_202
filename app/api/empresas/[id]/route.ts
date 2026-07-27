@@ -1,5 +1,5 @@
 import { createSupabaseRouteHandlerClient } from "@/lib/supabase/server";
-import { buscarEmpresaCompletaPorId, paraShapeFrontend } from "@/lib/empresas";
+import { buscarEmpresaCompletaPorId, paraShapeFrontend, substituirResponsaveisEmpresa } from "@/lib/empresas";
 
 type EmpresaPatchPayload = {
   cnpj?: string;
@@ -13,7 +13,7 @@ type EmpresaPatchPayload = {
   porte?: string;
   situacaoCadastral?: string;
   abertura?: string | null;
-  responsavelId?: string | null;
+  responsavelIds?: string[];
   observacoes?: string;
   tags?: string[];
   socios?: { nome: string; papel: string }[];
@@ -31,7 +31,6 @@ const CAMPOS_EDITAVEIS: { chave: keyof EmpresaPatchPayload; coluna: string }[] =
   { chave: "porte", coluna: "porte" },
   { chave: "situacaoCadastral", coluna: "situacao_cadastral" },
   { chave: "abertura", coluna: "abertura" },
-  { chave: "responsavelId", coluna: "responsavel_id" },
   { chave: "observacoes", coluna: "observacoes" },
   { chave: "tags", coluna: "tags" },
 ];
@@ -80,6 +79,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 
   if (!empresaAtualizada) {
     return applySetCookies(Response.json({ error: "Empresa não encontrada." }, { status: 404 }));
+  }
+
+  if ("responsavelIds" in payload) {
+    const responsavelIds = Array.isArray(payload.responsavelIds) ? payload.responsavelIds : [];
+    const erroResponsaveis = await substituirResponsaveisEmpresa(supabase, id, responsavelIds);
+    if (erroResponsaveis) {
+      return applySetCookies(Response.json({ error: "Não foi possível atualizar os responsáveis da empresa." }, { status: 500 }));
+    }
   }
 
   // `empresas_socios` não é coluna de `empresas` — substituímos a lista

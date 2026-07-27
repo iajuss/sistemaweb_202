@@ -54,11 +54,15 @@ export const empresas = pgTable("empresas", {
   porte: text("porte").notNull().default(""),
   situacaoCadastral: text("situacao_cadastral").notNull().default(""),
   abertura: date("abertura"),
-  responsavelId: uuid("responsavel_id").references(() => perfis.id),
   tags: text("tags").array().notNull().default(sql`'{}'::text[]`),
   observacoes: text("observacoes").notNull().default(""),
   criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().default(sql`now()`),
   atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).notNull().default(sql`now()`),
+});
+
+export const empresasResponsaveis = pgTable("empresas_responsaveis", {
+  empresaId: uuid("empresa_id").notNull().references(() => empresas.id, { onDelete: "cascade" }),
+  perfilId: uuid("perfil_id").notNull().references(() => perfis.id),
 });
 
 export const empresasSocios = pgTable("empresas_socios", {
@@ -106,12 +110,12 @@ export const modelosRecorrencia = pgTable("modelos_recorrencia", {
   // lib/tarefas.ts).
   mesReferencia: integer("mes_referencia"),
   ativo: boolean("ativo").notNull().default(true),
-  // Fim da recorrência por duração (ex.: "repetir por 2 meses"), a partir de
-  // criadoEm. Ambos nulos = repete indefinidamente (comportamento padrão,
-  // igual ao de antes desta coluna existir). Ver calcularVencimentosDoModelo
-  // em lib/tarefas.ts.
-  repeticoesQuantidade: integer("repeticoes_quantidade"),
-  repeticoesUnidade: text("repeticoes_unidade"),
+  // Início/fim reais da recorrência. Ambos nulos = repete indefinidamente
+  // (comportamento padrão); sempre vêm juntos (nunca só um). repeteInicio
+  // pode ser uma data futura, adiando o começo da geração de tarefas. Ver
+  // calcularVencimentosDoModelo em lib/tarefas.ts.
+  repeteInicio: date("repete_inicio"),
+  repeteFim: date("repete_fim"),
   criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().default(sql`now()`),
 });
 
