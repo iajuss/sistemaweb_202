@@ -2,10 +2,34 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { serialize } from "cookie";
 
+/**
+ * Flags do cookie de sessão.
+ *
+ * O padrão do @supabase/ssr é `httpOnly: false` (ver
+ * node_modules/@supabase/ssr/dist/main/utils/constants.js) e sem `secure`.
+ * Isso deixa o access token E o refresh token legíveis por qualquer
+ * JavaScript da página: um único XSS vira sequestro de sessão duradouro, e o
+ * próprio usuário logado consegue extrair o token do `document.cookie` para
+ * falar direto com o PostgREST do Supabase, pulando toda checagem de papel
+ * que mora nas rotas de API (o nome do cookie, `sb-<ref>-auth-token`, já
+ * entrega qual é o projeto).
+ *
+ * Nenhum código de cliente deste app lê cookie de sessão — todo acesso ao
+ * Supabase é feito no servidor —, então `httpOnly` não quebra nada.
+ *
+ * `secure` fica de fora em desenvolvimento porque o dev server é http://.
+ */
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax",
+} as const;
+
 export async function createSupabaseServerClient() {
   const cookieStore = await cookies();
 
   return createServerClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!, {
+    cookieOptions: COOKIE_OPTIONS,
     cookies: {
       getAll() {
         return cookieStore.getAll();
@@ -38,6 +62,7 @@ export async function createSupabaseRouteHandlerClient() {
   const pendingCookies: { name: string; value: string; options?: CookieOptions }[] = [];
 
   const supabase = createServerClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!, {
+    cookieOptions: COOKIE_OPTIONS,
     cookies: {
       getAll() {
         return cookieStore.getAll();
