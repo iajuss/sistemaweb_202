@@ -174,6 +174,7 @@ export async function POST(request: Request) {
     .single();
 
   if (insertError || !modeloInserido) {
+    if (insertError) console.error("Erro ao criar modelo de recorrência:", insertError);
     return applySetCookies(
       Response.json({ error: "Não foi possível criar o modelo de recorrência." }, { status: 500 }),
     );
