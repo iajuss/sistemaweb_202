@@ -247,6 +247,18 @@ export async function listarPerfis(): Promise<{ id: string; nome: string }[]> {
   return response.json();
 }
 
+/** POST /api/equipe/convites — convida um funcionário por e-mail (só o responsável). */
+export async function convidarFuncionario(email: string): Promise<void> {
+  const response = await fetch("/api/equipe/convites", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (!response.ok) {
+    throw new Error(await extrairMensagemDeErro(response, "Não foi possível enviar o convite."));
+  }
+}
+
 /** GET /api/auditoria/divergencias — lista as divergências do escritório da sessão autenticada. */
 export async function listarDivergencias(): Promise<Divergencia[]> {
   const response = await fetch("/api/auditoria/divergencias");
