@@ -93,12 +93,10 @@ export async function PATCH(request: Request) {
     updates.exibir_nome_no_header = payload.exibirNomeNoHeader;
   }
 
-  const { data: escritorioAtualizado, error } = await supabase
-    .from("escritorios")
-    .update(updates)
-    .eq("id", perfil.escritorio_id)
-    .select(preferenciasForamEnviadas ? "nome, exibir_nome_na_lateral, exibir_nome_no_header" : "nome")
-    .single();
+  const baseUpdate = supabase.from("escritorios").update(updates).eq("id", perfil.escritorio_id);
+  const { data: escritorioAtualizado, error } = preferenciasForamEnviadas
+    ? await baseUpdate.select("nome, exibir_nome_na_lateral, exibir_nome_no_header").single()
+    : await baseUpdate.select("nome").single<{ nome: string; exibir_nome_na_lateral?: boolean; exibir_nome_no_header?: boolean }>();
 
   if (error || !escritorioAtualizado) {
     if (error?.code === "42501") {
