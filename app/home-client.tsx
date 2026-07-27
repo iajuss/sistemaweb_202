@@ -8,7 +8,7 @@ import {
   listarTarefas, paraSocioPayload, removerLogoEscritorio, salvarEmpresa, tratarDivergencia,
   type Divergencia, type Empresa, type MembroEquipe, type Papel, type SocioPayload, type Tarefa,
 } from "../src/services/portfolio";
-import { AccessibleModal, useAccessibleMenu, useDismissOnViewportChange } from "./accessibility";
+import { AccessibleModal, useAccessibleMenu, useDismissOnViewportChange, bloquearRolagemDocumento, liberarRolagemDocumento } from "./accessibility";
 import { Calendar, ResponsavelPicker } from "./calendar-view";
 
 // recharts é grande e só é usado na aba "Análise". Carregado sob demanda para
@@ -68,6 +68,11 @@ const proximoMesBrasil = (mes: string) => {
   const [ano, numeroMes] = mes.split("-").map(Number);
   const proximo = new Date(Date.UTC(ano, numeroMes, 1));
   return `${proximo.getUTCFullYear()}-${String(proximo.getUTCMonth() + 1).padStart(2, "0")}`;
+};
+const mesAnteriorBrasil = (mes: string) => {
+  const [ano, numeroMes] = mes.split("-").map(Number);
+  const anterior = new Date(Date.UTC(ano, numeroMes - 2, 1));
+  return `${anterior.getUTCFullYear()}-${String(anterior.getUTCMonth() + 1).padStart(2, "0")}`;
 };
 /** Evita "...obrigatórios.. Tente novamente." quando a mensagem do servidor já termina em ponto. */
 const semPontoFinal = (mensagem: string) => mensagem.replace(/\.+$/, "");
@@ -253,7 +258,15 @@ export function HomeClient({ userName, userEmail, papel }: { userName: string; u
     Promise.all([listarEmpresas(), listarDivergencias(), listarTarefas(mesAtual), listarPerfis()])
       .then(([c, d, t, p]) => {
         setCompanies(c); setIssues(d); setTasks(t); setWeekTasks(t); setPerfis(p); setLoading(false);
-        listarTarefas(proximoMesBrasil(mesAtual)).then((proximas) => setWeekTasks([...t, ...proximas])).catch(() => undefined);
+        // O mês anterior entra aqui só para o card "Vencimentos da semana"
+        // (que promete "inclui tarefas em atraso"): sem ele, uma tarefa que
+        // ficou Atrasada num mês que já passou e nunca foi concluída
+        // simplesmente sumia da Visão geral assim que o mês virava — as
+        // tarefas só são buscadas por mês (ver GET /api/tarefas), e sem essa
+        // busca extra nenhuma tela pedia o mês anterior de novo.
+        Promise.all([listarTarefas(mesAnteriorBrasil(mesAtual)), listarTarefas(proximoMesBrasil(mesAtual))])
+          .then(([anteriores, proximas]) => setWeekTasks([...anteriores, ...t, ...proximas]))
+          .catch(() => undefined);
       })
       .catch(() => { setLoadError(true); setLoading(false); });
   }, []);
@@ -275,8 +288,7 @@ export function HomeClient({ userName, userEmail, papel }: { userName: string; u
   useEffect(() => {
     if (!menuOpen) return;
     const elementoAnterior = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const overflowAnterior = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    bloquearRolagemDocumento();
     const frame = requestAnimationFrame(() => mobileMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus());
     const aoTeclar = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -300,7 +312,7 @@ export function HomeClient({ userName, userEmail, papel }: { userName: string; u
     return () => {
       cancelAnimationFrame(frame);
       document.removeEventListener("keydown", aoTeclar);
-      document.body.style.overflow = overflowAnterior;
+      liberarRolagemDocumento();
       elementoAnterior?.focus();
     };
   }, [menuOpen]);
@@ -330,7 +342,7 @@ export function HomeClient({ userName, userEmail, papel }: { userName: string; u
     <a className="skip-link" href="#conteudo-principal">Pular para o conteúdo</a>
     <aside ref={mobileMenuRef} className={`sidebar ${menuOpen ? "open" : ""} ${sidebarCollapsed ? "collapsed" : ""}`} aria-label="Navegação principal">
       <div className="brand">
-        <div className="brand-identity">{logoUrl && <img className="brand-logo" src={logoUrl} alt="" />}<span className="brand-name">Controle de carteira</span></div>
+        <div className="brand-identity">{logoUrl && <img className="brand-logo" src={logoUrl} alt="" />}<span className={`brand-name ${logoUrl ? "brand-name-com-logo" : ""}`}>Controle de carteira</span></div>
         <button className="sidebar-toggle" type="button" title={sidebarCollapsed ? "Expandir menu" : "Recolher menu"} aria-label={sidebarCollapsed ? "Expandir navegação" : "Recolher navegação"} onClick={() => setSidebarCollapsed((current) => !current)}><span className="sidebar-glyph" aria-hidden="true" /></button>
       </div>
       <nav>{nav.map((item) => <button key={item.label} title={sidebarCollapsed ? item.label : undefined} className={view === item.label ? "active" : ""} onClick={() => { setView(item.label); setMenuOpen(false); }}><NavIcon>{item.icon}</NavIcon><span className="nav-label">{item.label}</span></button>)}</nav>
@@ -568,14 +580,28 @@ function Overview({ companies, issues, tasks, weekTasks, go }: { companies: Empr
   const active = companies.filter((c) => c.status === "Ativa").length;
   const limiteDaSemana = somarDiasBrasil(hojeBrasil(), 6);
   const due = weekTasks.filter((t) => !["Concluída", "Cancelada"].includes(t.status) && t.vencimento <= limiteDaSemana).length;
+  // Um cluster de N empresas parecidas gera C(N,2) divergências de
+  // "Duplicidade" (uma por par) — contar cru infla o número (mesmo raciocínio
+  // de `clustersDuplicidadePendente`, usado na Auditoria): aqui também só a
+  // linha "representante" de cada grupo conta como 1 pendência, as demais
+  // (mesmo grupo, outro par) ficam ocultas da contagem e da lista abaixo.
+  const clusters = clustersDuplicidadePendente(issues);
+  const representantesDuplicidade = new Set(clusters.map((c) => c.representanteId));
+  const idsOcultosDuplicidade = new Set(
+    issues
+      .filter((i) => i.tipo === "Duplicidade" && i.status === "Pendente" && i.empresaRelacionada)
+      .map((i) => i.id)
+      .filter((id) => !representantesDuplicidade.has(id)),
+  );
+  const pendentes = issues.filter((i) => i.status === "Pendente" && !idsOcultosDuplicidade.has(i.id));
   return <>
     <section className="hero"><div><Badge tone="blue">Carteira em acompanhamento</Badge><h2>Uma visão clara da sua operação.</h2><p>Centralize cadastros, encontre inconsistências e mantenha as entregas do escritório no prazo.</p></div><button className="primary" onClick={() => go("Onboarding")}>Cadastrar empresa <span>→</span></button></section>
-    <section className="metrics"><Card title="Empresas na carteira" value={companies.length} helper={`${active} com situação ativa`} icon="▦" /><Card title="Divergências pendentes" value={issues.filter((i) => i.status === "Pendente").length} helper="Requerem uma decisão" icon="◇" /><Card title="Vencimentos da semana" value={due} helper="Inclui tarefas em atraso" icon="◷" /></section>
+    <section className="metrics"><Card title="Empresas na carteira" value={companies.length} helper={`${active} com situação ativa`} icon="▦" /><Card title="Divergências pendentes" value={pendentes.length} helper="Requerem uma decisão" icon="◇" /><Card title="Vencimentos da semana" value={due} helper="Inclui tarefas em atraso" icon="◷" /></section>
     <section className="section-head"><div><h2>Atalhos da operação</h2><p>Acesse rapidamente os principais fluxos.</p></div></section>
     <section className="quick-grid">
       {[ ["Onboarding", "＋", "Inclua empresas com dados pré-preenchidos por CNPJ."], ["Auditoria", "◈", "Revise divergências identificadas na base."], ["Análise", "▥", "Entenda a composição da sua carteira."], ["Calendário", "□", "Acompanhe obrigações e prazos recorrentes."] ].map(([title, icon, text]) => <button className="quick-card" key={title} onClick={() => go(title as View)}><span aria-hidden="true">{icon}</span><strong>{title}</strong><p>{text}</p><em aria-hidden="true">→</em></button>)}
     </section>
-    <section className="two-columns"><article className="panel"><div className="panel-title"><div><h3>Próximos vencimentos</h3><p>Prioridades dos próximos dias</p></div><button onClick={() => go("Calendário")}>Ver calendário</button></div>{tasks.slice(0, 4).map((t) => <div className="task-line" key={t.id}><time>{formatDate(t.vencimento)}</time><div><strong>{t.titulo}</strong><small>{t.empresa || "Reunião interna"} · {t.responsaveis.join(", ")}</small></div><Badge tone={t.status === "Atrasada" ? "danger" : "blue"}>{t.status}</Badge></div>)}</article><article className="panel"><div className="panel-title"><div><h3>Auditoria em foco</h3><p>Ocorrências pendentes por prioridade</p></div><button onClick={() => go("Auditoria")}>Revisar</button></div>{issues.filter((i) => i.status === "Pendente").slice(0, 4).map((i) => <div className="task-line" key={i.id}><span className="issue-dot" aria-hidden="true">!</span><div><strong>{i.empresa}</strong><small>{i.tipo}</small></div><Badge tone="warning">Pendente</Badge></div>)}</article></section>
+    <section className="two-columns"><article className="panel"><div className="panel-title"><div><h3>Próximos vencimentos</h3><p>Prioridades dos próximos dias</p></div><button onClick={() => go("Calendário")}>Ver calendário</button></div>{tasks.slice(0, 4).map((t) => <div className="task-line" key={t.id}><time>{formatDate(t.vencimento)}</time><div><strong>{t.titulo}</strong><small>{t.empresa || "Reunião interna"} · {t.responsaveis.join(", ")}</small></div><Badge tone={t.status === "Atrasada" ? "danger" : "blue"}>{t.status}</Badge></div>)}</article><article className="panel"><div className="panel-title"><div><h3>Auditoria em foco</h3><p>Ocorrências pendentes por prioridade</p></div><button onClick={() => go("Auditoria")}>Revisar</button></div>{pendentes.slice(0, 4).map((i) => <div className="task-line" key={i.id}><span className="issue-dot" aria-hidden="true">!</span><div><strong>{i.empresa}</strong><small>{i.tipo}</small></div><Badge tone="warning">Pendente</Badge></div>)}</article></section>
   </>;
 }
 
@@ -609,6 +635,7 @@ function Onboarding({ companies, setCompanies, perfis, userName, setIssues }: {
   const [editingPreview, setEditingPreview] = useState(false);
   const [deleting, setDeleting] = useState<Empresa | null>(null);
   const [deleteSaving, setDeleteSaving] = useState(false); const [deleteError, setDeleteError] = useState("");
+  const [empresaDetalhe, setEmpresaDetalhe] = useState<Empresa | null>(null);
   const lookup = async (e: FormEvent) => {
     e.preventDefault(); setState("loading");
     try {
@@ -681,12 +708,13 @@ function Onboarding({ companies, setCompanies, perfis, userName, setIssues }: {
     {editingPreview && result && <EmpresaPreviewEditModal empresa={result} onClose={() => setEditingPreview(false)} onSave={(dados) => { setResult({ ...result, ...dados, status: dados.status as Empresa["status"], porte: dados.porte as Empresa["porte"], socios: dados.socios.map(formatarSocio) }); setEditingPreview(false); }} />}{saveError && <div className="notice error" role="alert"><p>{saveError}</p></div>}<div className="details"><div><span>Endereço</span><strong>{result.endereco}, {result.cidade}/{result.estado}</strong></div><div><span>CNAE principal</span><strong>{result.cnaeCodigo || result.cnae ? `${result.cnaeCodigo} · ${result.cnae}` : "Não informado pela consulta"}</strong></div><div><span>Porte</span><strong>{result.porte}</strong></div><div><span>Responsáveis internos</span><ResponsavelPicker perfis={perfis} selecionados={responsavelIds} onChange={setResponsavelIds} /></div><div className="full"><details className="socios-dropdown"><summary>Quadro societário{result.socios.length > 0 ? ` (${result.socios.length})` : ""}</summary><div className="socios-list">{result.socios.length > 0 ? result.socios.map((s, i) => <p key={i} className="static-value">{s}</p>) : <p className="static-value">Nenhum sócio informado.</p>}</div></details></div><div className="full"><label htmlFor="obs">Observações internas</label><textarea id="obs" value={observacoes} onChange={(e) => setObservacoes(e.target.value)} placeholder="Inclua orientações para o time responsável…" /></div></div></section>}
     {toastVisible && <div className="toast" role="status" aria-live="polite"><span>✓ {message}</span><button type="button" className="toast-close" aria-label="Fechar aviso" onClick={() => setToastVisible(false)}>×</button></div>}
     <section className="section-head table-head"><div><h2>Cadastros na carteira</h2><p>{companies.length} empresas registradas</p></div><input aria-label="Buscar empresa" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por empresa ou CNPJ" /></section>
-    <section className="panel table-wrap"><table><thead><tr><th scope="col">Empresa</th><th scope="col">CNPJ</th><th scope="col">Localidade</th><th scope="col">Situação</th><th scope="col">Responsável</th><th scope="col"><span className="sr-only">Ações</span></th></tr></thead><tbody>{listed.map((c) => <tr key={c.id}><td><strong>{c.razaoSocial}</strong><small>{c.fantasia}</small></td><td>{c.cnpj}</td><td>{c.cidade}/{c.estado}</td><td><Badge tone={statusTone(c.status)}>{c.status}</Badge></td><td>{c.responsaveis.join(", ")}</td><td className="row-menu"><button className="icon-button" aria-label={`Mais opções — ${c.razaoSocial}`} onClick={(e) => toggleMenu(c.id, e.currentTarget)}>⋯</button>{menuOpenId === c.id && menuAnchor && <>
+    <section className="panel table-wrap"><table><thead><tr><th scope="col">Empresa</th><th scope="col">CNPJ</th><th scope="col">Localidade</th><th scope="col">Situação</th><th scope="col">Responsável</th><th scope="col"><span className="sr-only">Ações</span></th></tr></thead><tbody>{listed.map((c) => <tr key={c.id}><td><button type="button" className="empresa-nome-link" onClick={() => setEmpresaDetalhe(c)}><strong>{c.razaoSocial}</strong><small>{c.fantasia}</small></button></td><td>{c.cnpj}</td><td>{c.cidade}/{c.estado}</td><td><Badge tone={statusTone(c.status)}>{c.status}</Badge></td><td>{c.responsaveis.join(", ")}</td><td className="row-menu"><button className="icon-button" aria-label={`Mais opções — ${c.razaoSocial}`} onClick={(e) => toggleMenu(c.id, e.currentTarget)}>⋯</button>{menuOpenId === c.id && menuAnchor && <>
       <button type="button" className="menu-backdrop" aria-label="Fechar menu" onClick={closeMenu} />
       <div ref={menuAcessivel.menuRef} className="dropdown-menu" role="menu" onKeyDown={menuAcessivel.aoTeclar} style={{ top: menuAnchor.top, right: menuAnchor.right }}><button type="button" role="menuitem" onClick={() => openEdit(c)}>Editar</button><button type="button" role="menuitem" className="danger" onClick={() => { dismissMenu(); setDeleting(c); setDeleteError(""); }}>Excluir</button></div>
     </>}</td></tr>)}</tbody></table>{listed.length === 0 && <Empty />}</section>
     {editing && <EmpresaEditModal empresa={editing} perfis={perfis} onClose={() => setEditing(null)} onSaved={handleEmpresaSalva} />}
     {deleting && <ConfirmarExclusaoEmpresa empresa={deleting} saving={deleteSaving} error={deleteError} onClose={() => setDeleting(null)} onConfirm={confirmDelete} />}
+    {empresaDetalhe && <EmpresaDetalheModal empresa={empresaDetalhe} onClose={() => setEmpresaDetalhe(null)} />}
   </>;
 }
 
@@ -772,18 +800,35 @@ function ResolverDuplicidade({ divergencia, issues, companies, onClose, onResolv
   // — parar na busca direta fazia o cluster mostrado variar dependendo de
   // qual empresa/par especificamente foi clicado, quando deveria ser sempre
   // o mesmo grupo completo.
-  const baseId = divergencia.empresaId;
-  const idsDoCluster = new Set<string>([baseId]);
-  let cresceu = true;
-  while (cresceu) {
-    cresceu = false;
-    for (const i of issues) {
-      if (i.tipo !== "Duplicidade" || i.status !== "Pendente" || !i.empresaRelacionada) continue;
-      const a = i.empresaId, b = i.empresaRelacionada.id;
-      if (idsDoCluster.has(a) && !idsDoCluster.has(b)) { idsDoCluster.add(b); cresceu = true; }
-      if (idsDoCluster.has(b) && !idsDoCluster.has(a)) { idsDoCluster.add(a); cresceu = true; }
+  //
+  // Calculado só na PRIMEIRA renderização (useState com inicializador
+  // preguiçoso), nunca recalculado a partir de `issues` depois disso: cada
+  // exclusão bem-sucedida dispara uma reauditoria silenciosa em segundo
+  // plano (`revalidarAuditoriaSilenciosa`) que troca `issues` por dados
+  // novos do servidor. Se a empresa excluída for justamente a âncora desta
+  // divergência (`divergencia.empresaId`), as linhas de Duplicidade onde ela
+  // era `empresa_id` são apagadas em cascata no banco (FK `on delete
+  // cascade`) — refazer a busca a partir dessa mesma âncora contra o
+  // `issues` já atualizado não encontra mais nenhuma aresta e o cluster
+  // desaba para 1 item, mesmo com o resto do grupo (empresas de verdade,
+  // ainda parecidas entre si) intocado. Fixar o cluster uma vez elimina essa
+  // classe de bug: a decisão de "quem pertence a este grupo" é tomada só ao
+  // abrir o modal.
+  const [idsDoCluster] = useState<Set<string>>(() => {
+    const baseId = divergencia.empresaId;
+    const ids = new Set<string>([baseId]);
+    let cresceu = true;
+    while (cresceu) {
+      cresceu = false;
+      for (const i of issues) {
+        if (i.tipo !== "Duplicidade" || i.status !== "Pendente" || !i.empresaRelacionada) continue;
+        const a = i.empresaId, b = i.empresaRelacionada.id;
+        if (ids.has(a) && !ids.has(b)) { ids.add(b); cresceu = true; }
+        if (ids.has(b) && !ids.has(a)) { ids.add(a); cresceu = true; }
+      }
     }
-  }
+    return ids;
+  });
 
   const cartoes = Array.from(idsDoCluster)
     .map((id) => companies.find((c) => c.id === id) ?? null)
@@ -846,6 +891,7 @@ function Audit({ issues, setIssues, companies, setCompanies, perfis }: {
   companies: Empresa[]; setCompanies: (value: Empresa[]) => void; perfis: { id: string; nome: string }[];
 }) {
   const [type, setType] = useState("Todos"); const [status, setStatus] = useState("Pendente");
+  const [buscaEmpresa, setBuscaEmpresa] = useState("");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [revalidating, setRevalidating] = useState(false);
   const [actionError, setActionError] = useState("");
@@ -866,7 +912,7 @@ function Audit({ issues, setIssues, companies, setCompanies, perfis }: {
       .filter((id) => !representantesDuplicidade.has(id)),
   );
   const filtered = issues
-    .filter((i) => (type === "Todos" || i.tipo === type) && (status === "Todos" || i.status === status) && !idsOcultosDuplicidade.has(i.id))
+    .filter((i) => (type === "Todos" || i.tipo === type) && (status === "Todos" || i.status === status) && !idsOcultosDuplicidade.has(i.id) && i.empresa.toLowerCase().includes(buscaEmpresa.trim().toLowerCase()))
     // Mais recentes primeiro — usa `resolvidoEm` quando existe (histórico de
     // tratadas), senão `detectadoEm` (ainda pendentes).
     .sort((a, b) => new Date(b.resolvidoEm ?? b.detectadoEm).getTime() - new Date(a.resolvidoEm ?? a.detectadoEm).getTime());
@@ -956,12 +1002,12 @@ function Audit({ issues, setIssues, companies, setCompanies, perfis }: {
       <div><h2>Auditoria de clientes</h2><p>Inconsistências encontradas nos registros da carteira.</p></div>
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
         <button className="primary" onClick={revalidar} disabled={revalidating}>{revalidating ? "Revalidando…" : "Revalidar carteira"}</button>
-        <Badge tone="warning">{issues.filter((i) => i.status === "Pendente").length} pendentes</Badge>
+        <Badge tone="warning">{issues.filter((i) => i.status === "Pendente" && !idsOcultosDuplicidade.has(i.id)).length} pendentes</Badge>
       </div>
     </section>
     {actionError && <div className="notice error" role="alert"><p>{actionError}</p></div>}
-    <section className="audit-summary">{types.slice(1).map((t) => <article key={t}><span>{t === "CNPJ inválido" ? "#" : "!"}</span><strong>{contarTipo(t)}</strong><p>{t}</p></article>)}</section>
-    <section className="filters"><label>Tipo<select value={type} onChange={(e) => setType(e.target.value)}>{types.map((t) => <option key={t}>{t}</option>)}</select></label><label>Tratamento<select value={status} onChange={(e) => setStatus(e.target.value)}>{["Todos", "Pendente", "Revisado", "Ignorado"].map((s) => <option key={s}>{s}</option>)}</select></label></section>
+    <section className="audit-summary">{types.slice(1).filter((t) => contarTipo(t) > 0).map((t) => <button type="button" key={t} className={type === t ? "selected" : ""} aria-pressed={type === t} onClick={() => setType(type === t ? "Todos" : t)}><span>{t === "CNPJ inválido" ? "#" : "!"}</span><strong>{contarTipo(t)}</strong><p>{t}</p></button>)}</section>
+    <section className="filters"><label>Tipo<select value={type} onChange={(e) => setType(e.target.value)}>{types.map((t) => <option key={t}>{t}</option>)}</select></label><label>Tratamento<select value={status} onChange={(e) => setStatus(e.target.value)}>{["Todos", "Pendente", "Revisado", "Ignorado"].map((s) => <option key={s}>{s}</option>)}</select></label><label>Empresa<input value={buscaEmpresa} onChange={(e) => setBuscaEmpresa(e.target.value)} placeholder="Buscar por nome" /></label></section>
     <section className="panel table-wrap audit-table-wrap"><table className="audit-table"><thead><tr><th scope="col">Empresa</th><th scope="col">Ocorrência</th><th scope="col">Valor atual</th><th scope="col">Sugestão</th><th scope="col">Status</th><th scope="col">Ações</th></tr></thead><tbody>{filtered.map((i) => { const empresaDaLinha = companies.find((c) => c.id === i.empresaId); const tamanhoGrupo = tamanhoPorRepresentante.get(i.id); return <tr key={i.id}><td><strong>{i.empresa}</strong></td><td><Badge tone="neutral">{i.tipo}</Badge></td><td>{tamanhoGrupo && tamanhoGrupo > 2 ? `${tamanhoGrupo} cadastros com nome parecido entre si` : i.atual}{i.status === "Revisado" && i.sugerido && <><br /><small className="static-value">corrigido para: {i.sugerido}</small></>}</td><td>{i.sugerido || "—"}</td><td><Badge tone={i.status === "Pendente" ? "warning" : i.status === "Revisado" ? "success" : "neutral"}>{i.status}</Badge><br /><small className="static-value">{formatDataHoraBrasilia(i.resolvidoEm ?? i.detectadoEm)}</small></td><td className="actions audit-actions">
       {i.status !== "Revisado" ? <>
         {i.tipo === "Duplicidade" && <button className="table-action action-resolve" onClick={() => setDuplicidade(i)} disabled={updatingId === i.id}>Resolver duplicidade</button>}
@@ -984,7 +1030,12 @@ function Analysis({ companies }: { companies: Empresa[] }) {
   const filtered = companies.filter((c) => (state === "Todos" || c.estado === state) && (size === "Todos" || c.porte === size) && (situation === "Todos" || c.status === situation) && `${c.razaoSocial} ${c.cnae}`.toLowerCase().includes(search.toLowerCase()));
   const count = (key: keyof Empresa) => Object.entries(filtered.reduce((a, c) => ({ ...a, [String(c[key])]: (a[String(c[key])] || 0) + 1 }), {} as Record<string, number>)).map(([name, value]) => ({ name, value }));
   const stateData = count("estado").sort((a, b) => b.value - a.value); const sizeData = count("porte"); const cnaeData = count("cnae").sort((a, b) => b.value - a.value); const statusData = count("status");
-  const anoAbertura = (c: Empresa) => (c.abertura ? new Date(c.abertura).getFullYear() : null);
+  // Lê o ano direto da string "YYYY-MM-DD" — `new Date(c.abertura).getFullYear()`
+  // parseia como meia-noite UTC; convertida para o fuso de Brasília (UTC-3),
+  // uma abertura em 1º de janeiro virava 31/12 do ano anterior às 21h, e
+  // `getFullYear()` (que usa o fuso local do navegador) devolvia o ano
+  // errado — a empresa caía uma faixa de idade acima da que deveria.
+  const anoAbertura = (c: Empresa) => (c.abertura ? Number(c.abertura.slice(0, 4)) : null);
   const ages = [{ name: "até 3 anos", value: filtered.filter((c) => { const a = anoAbertura(c); return a !== null && a >= anoAtual - 3; }).length }, { name: "4 a 8 anos", value: filtered.filter((c) => { const a = anoAbertura(c); return a !== null && a >= anoAtual - 8 && a < anoAtual - 3; }).length }, { name: "9 a 15 anos", value: filtered.filter((c) => { const a = anoAbertura(c); return a !== null && a >= anoAtual - 15 && a < anoAtual - 8; }).length }, { name: "mais de 15", value: filtered.filter((c) => { const a = anoAbertura(c); return a !== null && a < anoAtual - 15; }).length }];
 
   const abrirSegmento = (tipo: SegmentoTipo, nome: string) => {
@@ -1026,6 +1077,32 @@ function CnaeRanking({ data, onSelect }: { data: { name: string; value: number }
       <span className="cnae-ranking-position">{String(index + 1).padStart(2, "0")}</span><span className="cnae-ranking-content"><strong>{item.name}</strong><span className="cnae-ranking-track" aria-hidden="true"><i style={{ width: `${Math.max((item.value / maiorValor) * 100, 5)}%` }} /></span></span><span className="cnae-ranking-value"><strong>{item.value}</strong><small>{item.value === 1 ? "empresa" : "empresas"}</small></span>
     </button></li>)}
   </div></div>;
+}
+
+// Detalhe de UMA empresa (aberto ao clicar no nome dela no Onboarding) — mesmo
+// visual de cartão do `SegmentoModal`, mas sem o cabeçalho "N empresas
+// encontradas" (que só faz sentido para uma lista) e com o quadro societário
+// como dropdown, igual ao já usado em `ResolverDuplicidade` e no preview do
+// Onboarding.
+function EmpresaDetalheModal({ empresa, onClose }: { empresa: Empresa; onClose: () => void }) {
+  return <AccessibleModal label={`Detalhes — ${empresa.razaoSocial}`} onClose={onClose}><div className="modal segmento-modal">
+    <button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button>
+    <article className="segmento-card empresa-detalhe-card">
+      <div className="segmento-card-head"><strong>{empresa.razaoSocial}</strong><Badge tone={statusTone(empresa.status)}>{empresa.status}</Badge></div>
+      <p className="segmento-card-sub">{empresa.fantasia} · CNPJ {empresa.cnpj}</p>
+      <div className="segmento-card-grid">
+        <div><span>Localidade</span><strong>{empresa.cidade}/{empresa.estado}</strong></div>
+        <div><span>Porte</span><strong>{empresa.porte}</strong></div>
+        <div><span>CNAE</span><strong>{empresa.cnaeCodigo ? `${empresa.cnaeCodigo} · ${empresa.cnae}` : empresa.cnae || "Não informado"}</strong></div>
+        <div><span>Responsável</span><strong>{empresa.responsaveis.length > 0 ? empresa.responsaveis.join(", ") : "—"}</strong></div>
+        <div className="full"><span>Endereço</span><strong>{empresa.endereco || "Não informado"}</strong></div>
+        <div className="full"><details className="socios-dropdown">
+          <summary>Quadro societário{empresa.socios.length > 0 ? ` (${empresa.socios.length})` : ""}</summary>
+          <div className="socios-list">{empresa.socios.length > 0 ? empresa.socios.map((s, i) => <p key={i} className="static-value">{s}</p>) : <p className="static-value">Nenhum sócio informado.</p>}</div>
+        </details></div>
+      </div>
+    </article>
+  </div></AccessibleModal>;
 }
 
 function SegmentoModal({ titulo, empresas, onClose }: { titulo: string; empresas: Empresa[]; onClose: () => void }) {
