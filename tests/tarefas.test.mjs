@@ -127,6 +127,154 @@ test("semanal: dia 1 (segunda) mapeia as segundas-feiras do mês", () => {
   assert.deepEqual(vencimentos, ["2026-07-06", "2026-07-13", "2026-07-20", "2026-07-27"]);
 });
 
+
+test("semanal: diasSemana com múltiplos dias gera uma data por dia selecionado (terça e quinta)", () => {
+  // Julho de 2026: as terças caem em 7, 14, 21, 28; as quintas em 2, 9, 16, 23, 30.
+  const vencimentos = calcularVencimentosDoModelo({
+    periodicidade: "semanal",
+    diaReferencia: 2,
+    diasSemana: [2, 4],
+    mes: "2026-07",
+    criadoEm: "2026-01-01T00:00:00Z",
+  });
+  assert.deepEqual(vencimentos, [
+    "2026-07-02", "2026-07-07", "2026-07-09", "2026-07-14",
+    "2026-07-16", "2026-07-21", "2026-07-23", "2026-07-28", "2026-07-30",
+  ]);
+});
+
+test("semanal: diasSemana vazio/ausente cai de volta para o único diaReferencia (compatibilidade)", () => {
+  const comArrayVazio = calcularVencimentosDoModelo({
+    periodicidade: "semanal",
+    diaReferencia: 5,
+    diasSemana: [],
+    mes: "2026-07",
+    criadoEm: "2026-01-01T00:00:00Z",
+  });
+  const semArray = calcularVencimentosDoModelo({
+    periodicidade: "semanal",
+    diaReferencia: 5,
+    mes: "2026-07",
+    criadoEm: "2026-01-01T00:00:00Z",
+  });
+  assert.deepEqual(comArrayVazio, ["2026-07-03", "2026-07-10", "2026-07-17", "2026-07-24", "2026-07-31"]);
+  assert.deepEqual(comArrayVazio, semArray);
+});
+
+// --- anual com mês explícito -------------------------------------------------
+
+test("anual: mesReferencia explícito é usado no lugar do mês de criadoEm", () => {
+  // Modelo criado em janeiro, mas configurado para vencer em março.
+  const noMesConfigurado = calcularVencimentosDoModelo({
+    periodicidade: "anual",
+    diaReferencia: 20,
+    mesReferencia: 3,
+    mes: "2026-03",
+    criadoEm: "2026-01-05T00:00:00Z",
+  });
+  const noMesDeCriacao = calcularVencimentosDoModelo({
+    periodicidade: "anual",
+    diaReferencia: 20,
+    mesReferencia: 3,
+    mes: "2026-01",
+    criadoEm: "2026-01-05T00:00:00Z",
+  });
+  assert.deepEqual(noMesConfigurado, ["2026-03-20"]);
+  assert.deepEqual(noMesDeCriacao, []);
+});
+
+test("anual: mesReferencia nulo cai de volta para o mês de criadoEm (modelos antigos)", () => {
+  const vencimentos = calcularVencimentosDoModelo({
+    periodicidade: "anual",
+    diaReferencia: 10,
+    mesReferencia: null,
+    mes: "2026-03",
+    criadoEm: "2026-03-10T12:00:00Z",
+  });
+  assert.deepEqual(vencimentos, ["2026-03-10"]);
+});
+// --- diario -----------------------------------------------------------------
+
+test("diario: gera um vencimento para cada dia do mês", () => {
+  const vencimentos = calcularVencimentosDoModelo({
+    periodicidade: "diario",
+    diaReferencia: 1,
+    mes: "2026-02",
+    criadoEm: "2026-01-01T00:00:00Z",
+  });
+  assert.equal(vencimentos.length, 28);
+  assert.equal(vencimentos[0], "2026-02-01");
+  assert.equal(vencimentos[27], "2026-02-28");
+});
+
+// --- repetições (fim por duração) -------------------------------------------
+
+test("repetições: sem quantidade/unidade, repete indefinidamente (comportamento padrão)", () => {
+  const vencimentos = calcularVencimentosDoModelo({
+    periodicidade: "diario",
+    diaReferencia: 1,
+    mes: "2027-01",
+    criadoEm: "2026-01-01T00:00:00Z",
+  });
+  assert.equal(vencimentos.length, 31);
+});
+
+test("repetições: 'diario' por 5 dias corta as datas após o 5º dia a partir de criadoEm", () => {
+  const vencimentos = calcularVencimentosDoModelo({
+    periodicidade: "diario",
+    diaReferencia: 1,
+    mes: "2026-07",
+    criadoEm: "2026-07-01T00:00:00Z",
+    repeticoesQuantidade: 5,
+    repeticoesUnidade: "dias",
+  });
+  assert.deepEqual(vencimentos, ["2026-07-01", "2026-07-02", "2026-07-03", "2026-07-04", "2026-07-05"]);
+});
+
+test("repetições: 'mensal' por 2 meses ainda gera no mês seguinte, mas não no terceiro", () => {
+  const noSegundoMes = calcularVencimentosDoModelo({
+    periodicidade: "mensal",
+    diaReferencia: 10,
+    mes: "2026-08",
+    criadoEm: "2026-07-10T00:00:00Z",
+    repeticoesQuantidade: 2,
+    repeticoesUnidade: "meses",
+  });
+  assert.deepEqual(noSegundoMes, ["2026-08-10"]);
+
+  const noTerceiroMes = calcularVencimentosDoModelo({
+    periodicidade: "mensal",
+    diaReferencia: 10,
+    mes: "2026-09",
+    criadoEm: "2026-07-10T00:00:00Z",
+    repeticoesQuantidade: 2,
+    repeticoesUnidade: "meses",
+  });
+  assert.deepEqual(noTerceiroMes, []);
+});
+
+test("repetições: 'anual' por 1 ano gera só no primeiro ano, não no segundo", () => {
+  const noPrimeiroAno = calcularVencimentosDoModelo({
+    periodicidade: "anual",
+    diaReferencia: 15,
+    mes: "2026-05",
+    criadoEm: "2026-05-15T00:00:00Z",
+    repeticoesQuantidade: 1,
+    repeticoesUnidade: "anos",
+  });
+  assert.deepEqual(noPrimeiroAno, ["2026-05-15"]);
+
+  const noSegundoAno = calcularVencimentosDoModelo({
+    periodicidade: "anual",
+    diaReferencia: 15,
+    mes: "2027-05",
+    criadoEm: "2026-05-15T00:00:00Z",
+    repeticoesQuantidade: 1,
+    repeticoesUnidade: "anos",
+  });
+  assert.deepEqual(noSegundoAno, []);
+});
+
 // --- defensivo ------------------------------------------------------------
 
 test("periodicidade desconhecida retorna lista vazia (defensivo)", () => {

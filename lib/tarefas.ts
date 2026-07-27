@@ -11,19 +11,14 @@
  * sempre calculado na leitura (`paraShapeFrontend`) comparando
  * `vencimento < hoje` para tarefas `"Pendente"`.
  *
- * Decisão para `periodicidade: "anual"`: o schema de `modelos_recorrencia`
- * não tem uma coluna dedicada para o "mês de referência" da recorrência
- * anual — só `dia_referencia` (dia do mês). Em vez de migrar o schema já em
- * produção outra vez nesta task, usamos o **mês em que o modelo foi criado**
- * (`criado_em`) como o mês de referência anual: `gerarTarefasDoMes` só gera
- * uma tarefa "anual" quando o mês pedido (`mes`) tem o mesmo número de mês
- * que `criado_em` (independente do ano). Limitação aceita para v1: se o
- * usuário quiser uma recorrência anual num mês diferente do mês de criação,
- * precisa recriar o modelo naquele mês (ou, no futuro, adicionar uma coluna
- * `mes_referencia`).
+ * `periodicidade: "anual"` usa `mesReferencia` (coluna dedicada) como mês do
+ * vencimento. Modelos anuais criados antes dessa coluna existir têm
+ * `mesReferencia` nulo — para esses, cai de volta para o **mês em que o
+ * modelo foi criado** (`criadoEm`), comportamento original.
  */
 import type { createServerClient } from "@supabase/ssr";
 import { garantirFeriadosDoAno, type Feriado } from "./feriados.ts";
+import type { UnidadeRepeticao } from "./modelos-recorrencia.ts";
 
 type SupabaseClient = ReturnType<typeof createServerClient>;
 
@@ -66,7 +61,11 @@ type ModeloRecorrenciaParaGeracao = {
   tipo: string;
   periodicidade: string;
   dia_referencia: number;
+  dias_semana: number[] | null;
+  mes_referencia: number | null;
   responsavel_id: string | null;
+  repeticoes_quantidade: number | null;
+  repeticoes_unidade: string | null;
   criado_em: string;
 };
 
@@ -129,61 +128,95 @@ export function mesAtual(): string {
 }
 
 /**
+ * Primeiro dia em que um modelo com fim por duração já NÃO gera mais
+ * vencimentos: `criadoEm + quantidade unidade`, no formato "YYYY-MM-DD".
+ * Comparável por ordem lexicográfica com os vencimentos calculados (mesmo
+ * formato) — o corte é exclusivo (ver uso abaixo).
+ */
+function calcularDataFimRecorrencia(criadoEm: string, quantidade: number, unidade: UnidadeRepeticao): string {
+  const inicio = new Date(criadoEm);
+  const fim = new Date(Date.UTC(inicio.getUTCFullYear(), inicio.getUTCMonth(), inicio.getUTCDate()));
+  if (unidade === "dias") fim.setUTCDate(fim.getUTCDate() + quantidade);
+  else if (unidade === "meses") fim.setUTCMonth(fim.getUTCMonth() + quantidade);
+  else fim.setUTCFullYear(fim.getUTCFullYear() + quantidade);
+  return formatarData(fim.getUTCFullYear(), fim.getUTCMonth() + 1, fim.getUTCDate());
+}
+
+/**
  * Função pura (sem I/O) que calcula as datas de vencimento de um modelo de
  * recorrência dentro de um mês pedido. Isolada de `gerarTarefasDoMes` para
  * ser testável sem banco — ver `tests/tarefas.test.mjs`.
  *
+ * - `"diario"`: um vencimento por dia do mês (não usa `diaReferencia`).
  * - `"mensal"`: um vencimento em `diaReferencia`, "clampado" ao último dia
  *   do mês se este não tiver `diaReferencia` dias (ex. 31 em abril → 30).
- * - `"anual"`: só gera se o mês de `mes` bater com o mês de `criadoEm` (ver
- *   decisão documentada no topo do arquivo); quando bate, mesma regra de
- *   clamping do mensal.
- * - `"semanal"`: uma data por ocorrência do dia da semana `diaReferencia`
- *   (1=segunda ... 7=domingo) dentro do mês.
+ * - `"anual"`: só gera se o mês de `mes` bater com `mesReferencia` (ou, se
+ *   `mesReferencia` for nulo, com o mês de `criadoEm` — ver nota no topo do
+ *   arquivo); quando bate, mesma regra de clamping do mensal.
+ * - `"semanal"`: uma data por ocorrência de cada dia em `diasSemana`
+ *   (1=segunda ... 7=domingo) dentro do mês. Se `diasSemana` vier vazio/nulo,
+ *   cai de volta para o único dia em `diaReferencia` (compatibilidade com
+ *   modelos antigos, de antes de suportar múltiplos dias).
  * - qualquer outro valor de `periodicidade`: retorna `[]` (defensivo — não
  *   deveria ocorrer, já que a validação de POST/PATCH de modelos restringe
  *   os valores possíveis).
+ *
+ * Quando `repeticoesQuantidade`/`repeticoesUnidade` são informados (os dois
+ * juntos — ver `validarRepeticoes` em `lib/modelos-recorrencia.ts`), datas a
+ * partir de `criadoEm + repeticoesQuantidade repeticoesUnidade` (exclusive)
+ * são descartadas — a recorrência "se repete por 2 meses / 5 dias / 1 ano"
+ * em vez de indefinidamente.
  */
 export function calcularVencimentosDoModelo(params: {
   periodicidade: string;
   diaReferencia: number;
   mes: string; // "YYYY-MM"
   criadoEm: string; // ISO date ou timestamp
+  diasSemana?: number[] | null;
+  mesReferencia?: number | null;
+  repeticoesQuantidade?: number | null;
+  repeticoesUnidade?: UnidadeRepeticao | null;
 }): string[] {
   const [anoStr, mesStr] = params.mes.split("-");
   const ano = Number(anoStr);
   const mesNum = Number(mesStr);
   const ultimoDia = ultimoDiaDoMes(ano, mesNum);
 
-  if (params.periodicidade === "mensal") {
-    const dia = Math.min(params.diaReferencia, ultimoDia);
-    return [formatarData(ano, mesNum, dia)];
-  }
+  let datas: string[] = [];
 
-  if (params.periodicidade === "anual") {
-    const criado = new Date(params.criadoEm);
-    const mesReferencia = criado.getUTCMonth() + 1;
-    if (mesReferencia !== mesNum) {
-      return [];
+  if (params.periodicidade === "diario") {
+    for (let dia = 1; dia <= ultimoDia; dia++) {
+      datas.push(formatarData(ano, mesNum, dia));
     }
+  } else if (params.periodicidade === "mensal") {
     const dia = Math.min(params.diaReferencia, ultimoDia);
-    return [formatarData(ano, mesNum, dia)];
-  }
-
-  if (params.periodicidade === "semanal") {
-    const datas: string[] = [];
+    datas = [formatarData(ano, mesNum, dia)];
+  } else if (params.periodicidade === "anual") {
+    const mesReferencia = params.mesReferencia ?? new Date(params.criadoEm).getUTCMonth() + 1;
+    if (mesReferencia === mesNum) {
+      const dia = Math.min(params.diaReferencia, ultimoDia);
+      datas = [formatarData(ano, mesNum, dia)];
+    }
+  } else if (params.periodicidade === "semanal") {
+    const diasAlvo = params.diasSemana && params.diasSemana.length > 0 ? params.diasSemana : [params.diaReferencia];
     for (let dia = 1; dia <= ultimoDia; dia++) {
       const data = new Date(Date.UTC(ano, mesNum - 1, dia));
       const diaSemanaJS = data.getUTCDay(); // 0=domingo...6=sábado
       const diaSemana = diaSemanaJS === 0 ? 7 : diaSemanaJS; // 1=segunda...7=domingo
-      if (diaSemana === params.diaReferencia) {
+      if (diasAlvo.includes(diaSemana)) {
         datas.push(formatarData(ano, mesNum, dia));
       }
     }
-    return datas;
   }
 
-  return [];
+  if (params.repeticoesQuantidade && params.repeticoesUnidade) {
+    // Corte exclusivo: "repetir por 5 dias" a partir de criadoEm cobre os
+    // dias 1 a 5, não o 6º (criadoEm + 5 dias já é o dia seguinte ao fim).
+    const fim = calcularDataFimRecorrencia(params.criadoEm, params.repeticoesQuantidade, params.repeticoesUnidade);
+    datas = datas.filter((data) => data < fim);
+  }
+
+  return datas;
 }
 
 /**
@@ -238,7 +271,7 @@ export function calcularVencimentosDoModelo(params: {
 export async function gerarTarefasDoMes(supabase: SupabaseClient, escritorioId: string, mes: string): Promise<void> {
   const { data: modelos, error: modelosError } = await supabase
     .from("modelos_recorrencia")
-    .select("id, empresa_id, titulo, tipo, periodicidade, dia_referencia, responsavel_id, criado_em")
+    .select("id, empresa_id, titulo, tipo, periodicidade, dia_referencia, dias_semana, mes_referencia, responsavel_id, repeticoes_quantidade, repeticoes_unidade, criado_em")
     .eq("escritorio_id", escritorioId)
     .eq("ativo", true);
 
@@ -253,6 +286,10 @@ export async function gerarTarefasDoMes(supabase: SupabaseClient, escritorioId: 
       diaReferencia: modelo.dia_referencia,
       mes,
       criadoEm: modelo.criado_em,
+      diasSemana: modelo.dias_semana,
+      mesReferencia: modelo.mes_referencia,
+      repeticoesQuantidade: modelo.repeticoes_quantidade,
+      repeticoesUnidade: modelo.repeticoes_unidade as UnidadeRepeticao | null,
     });
 
     for (const vencimento of vencimentos) {

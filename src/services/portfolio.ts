@@ -60,7 +60,10 @@ export type Tarefa = {
   coincideComFeriado: { nome: string } | null;
 };
 
-export type Periodicidade = "mensal" | "semanal" | "anual";
+export type Periodicidade = "diario" | "semanal" | "mensal" | "anual";
+
+/** Unidade do "repetir por X" de um modelo de recorrência — ver `ModeloRecorrencia.repeticoesQuantidade`. */
+export type UnidadeRepeticao = "dias" | "meses" | "anos";
 
 export type ModeloRecorrencia = {
   id: string;
@@ -70,9 +73,17 @@ export type ModeloRecorrencia = {
   tipo: string;
   periodicidade: Periodicidade;
   diaReferencia: number;
+  // Só relevante para periodicidade "semanal": um ou mais dias (1=segunda...7=domingo).
+  diasSemana: number[] | null;
+  // Só relevante para periodicidade "anual": mês do vencimento (1-12).
+  mesReferencia: number | null;
   responsavelId?: string | null;
   responsavel: string;
   ativo: boolean;
+  // Fim da recorrência por duração (ex.: repetir por 2 meses), a partir de
+  // `criadoEm`. Os dois `null` juntos = repete sem data final.
+  repeticoesQuantidade: number | null;
+  repeticoesUnidade: UnidadeRepeticao | null;
   criadoEm?: string;
 };
 
@@ -357,8 +368,12 @@ export type ModeloRecorrenciaPayload = {
   tipo: string;
   periodicidade: Periodicidade;
   diaReferencia: number;
+  diasSemana?: number[];
+  mesReferencia?: number;
   empresaId?: string | null;
   responsavelId?: string | null;
+  repeticoesQuantidade?: number | null;
+  repeticoesUnidade?: UnidadeRepeticao | null;
 };
 
 /** POST /api/modelos-recorrencia — cria um modelo de recorrência (tarefas são geradas sob demanda ao abrir o calendário). */
@@ -381,8 +396,12 @@ export type ModeloRecorrenciaPatch = Partial<{
   tipo: string;
   periodicidade: Periodicidade;
   diaReferencia: number;
+  diasSemana: number[];
+  mesReferencia: number;
   empresaId: string | null;
   responsavelId: string | null;
+  repeticoesQuantidade: number | null;
+  repeticoesUnidade: UnidadeRepeticao | null;
   ativo: boolean;
 }>;
 

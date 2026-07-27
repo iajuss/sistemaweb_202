@@ -4,11 +4,14 @@ import {
   buscarModeloRecorrenciaCompletoPorId,
   paraShapeFrontend,
   faixaDiaReferencia,
+  validarDiasSemana,
+  validarMesReferencia,
+  validarRepeticoes,
   type ModeloRecorrenciaRow,
   type Periodicidade,
 } from "@/lib/modelos-recorrencia";
 
-const PERIODICIDADES_VALIDAS: Periodicidade[] = ["mensal", "semanal", "anual"];
+const PERIODICIDADES_VALIDAS: Periodicidade[] = ["diario", "semanal", "mensal", "anual"];
 
 // GET /api/modelos-recorrencia — lista os modelos de recorrência do
 // escritório da sessão (RLS filtra por escritorio_id), com embeds de
@@ -42,18 +45,33 @@ type ModeloRecorrenciaPayload = {
   tipo?: string;
   periodicidade?: string;
   diaReferencia?: number;
+  diasSemana?: number[];
+  mesReferencia?: number;
   empresaId?: string | null;
   responsavelId?: string | null;
+  repeticoesQuantidade?: number | null;
+  repeticoesUnidade?: string | null;
 };
 
 // POST /api/modelos-recorrencia — cria um modelo de recorrência no
-// escritório da sessão. `diaReferencia` é validado contra a faixa plausível
-// para a `periodicidade` escolhida (1-7 para semanal, dia da semana; 1-31
-// para mensal/anual, dia do mês). `empresaId` é opcional: um modelo interno
-// (reunião/rotina da própria equipe) não tem empresa associada — mesmo
-// racional de `tarefas.empresa_id` (ver `0010_tarefas_empresa_nullable.sql`).
-// A obrigatoriedade de escolher uma empresa quando o modelo é "externo" é
-// decisão de frontend (mesmo padrão de `POST /api/tarefas`), não da API.
+// escritório da sessão.
+//
+// `diaReferencia` é dia do mês (1-31), usado só por "mensal"/"anual" — para
+// "diario"/"semanal" a coluna é NOT NULL mas o valor é ignorado na geração
+// (o frontend manda um dummy). "semanal" usa `diasSemana` (um ou mais dias
+// da semana, 1=segunda...7=domingo) em vez de um único dia. "anual" usa
+// `mesReferencia` (1-12) além de `diaReferencia`.
+//
+// `repeticoesQuantidade`/`repeticoesUnidade` definem um fim para a
+// recorrência (ex.: "repetir por 2 meses"); ambos `null` = repete sem fim.
+// A unidade precisa ter grandeza igual ou maior que a periodicidade (ver
+// `validarRepeticoes`).
+//
+// `empresaId` é opcional: um modelo interno (reunião/rotina da própria
+// equipe) não tem empresa associada — mesmo racional de `tarefas.empresa_id`
+// (ver `0010_tarefas_empresa_nullable.sql`). A obrigatoriedade de escolher
+// uma empresa quando o modelo é "externo" é decisão de frontend (mesmo
+// padrão de `POST /api/tarefas`), não da API.
 export async function POST(request: Request) {
   const { supabase, applySetCookies } = await createSupabaseRouteHandlerClient();
   const {
@@ -84,7 +102,7 @@ export async function POST(request: Request) {
 
   if (!periodicidade || !PERIODICIDADES_VALIDAS.includes(periodicidade as Periodicidade)) {
     return applySetCookies(
-      Response.json({ error: 'Periodicidade deve ser "mensal", "semanal" ou "anual".' }, { status: 400 }),
+      Response.json({ error: 'Periodicidade deve ser "diario", "semanal", "mensal" ou "anual".' }, { status: 400 }),
     );
   }
 
@@ -96,11 +114,32 @@ export async function POST(request: Request) {
   const maxDia = faixaDiaReferencia(periodicidade);
   if (diaReferencia < 1 || diaReferencia > maxDia) {
     return applySetCookies(
-      Response.json(
-        { error: `Dia de referência deve estar entre 1 e ${maxDia} para periodicidade "${periodicidade}".` },
-        { status: 400 },
-      ),
+      Response.json({ error: `Dia de referência deve estar entre 1 e ${maxDia}.` }, { status: 400 }),
     );
+  }
+
+  let diasSemana: number[] | null = null;
+  let mesReferencia: number | null = null;
+
+  if (periodicidade === "semanal") {
+    const erroDias = validarDiasSemana(payload.diasSemana);
+    if (erroDias) {
+      return applySetCookies(Response.json({ error: erroDias }, { status: 400 }));
+    }
+    diasSemana = payload.diasSemana as number[];
+  } else if (periodicidade === "anual") {
+    const erroMes = validarMesReferencia(payload.mesReferencia);
+    if (erroMes) {
+      return applySetCookies(Response.json({ error: erroMes }, { status: 400 }));
+    }
+    mesReferencia = payload.mesReferencia as number;
+  }
+
+  const repeticoesQuantidade = payload.repeticoesQuantidade ?? null;
+  const repeticoesUnidade = payload.repeticoesUnidade ?? null;
+  const erroRepeticoes = validarRepeticoes(periodicidade as Periodicidade, repeticoesQuantidade, repeticoesUnidade);
+  if (erroRepeticoes) {
+    return applySetCookies(Response.json({ error: erroRepeticoes }, { status: 400 }));
   }
 
   const { data: perfil, error: perfilError } = await supabase
@@ -124,7 +163,11 @@ export async function POST(request: Request) {
       tipo,
       periodicidade,
       dia_referencia: diaReferencia,
+      dias_semana: diasSemana,
+      mes_referencia: mesReferencia,
       responsavel_id: payload.responsavelId ?? null,
+      repeticoes_quantidade: repeticoesQuantidade,
+      repeticoes_unidade: repeticoesUnidade,
       ativo: true,
     })
     .select("id")

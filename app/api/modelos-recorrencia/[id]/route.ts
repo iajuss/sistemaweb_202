@@ -3,18 +3,25 @@ import {
   buscarModeloRecorrenciaCompletoPorId,
   paraShapeFrontend,
   faixaDiaReferencia,
+  validarDiasSemana,
+  validarMesReferencia,
+  validarRepeticoes,
   type Periodicidade,
 } from "@/lib/modelos-recorrencia";
 
-const PERIODICIDADES_VALIDAS: Periodicidade[] = ["mensal", "semanal", "anual"];
+const PERIODICIDADES_VALIDAS: Periodicidade[] = ["diario", "semanal", "mensal", "anual"];
 
 type ModeloRecorrenciaPatchPayload = {
   titulo?: string;
   tipo?: string;
   periodicidade?: string;
   diaReferencia?: number;
+  diasSemana?: number[];
+  mesReferencia?: number;
   empresaId?: string | null;
   responsavelId?: string | null;
+  repeticoesQuantidade?: number | null;
+  repeticoesUnidade?: string | null;
   ativo?: boolean;
 };
 
@@ -26,10 +33,22 @@ const CAMPOS_EDITAVEIS: { chave: keyof ModeloRecorrenciaPatchPayload; coluna: st
   { chave: "tipo", coluna: "tipo" },
   { chave: "periodicidade", coluna: "periodicidade" },
   { chave: "diaReferencia", coluna: "dia_referencia" },
+  { chave: "diasSemana", coluna: "dias_semana" },
+  { chave: "mesReferencia", coluna: "mes_referencia" },
   { chave: "empresaId", coluna: "empresa_id" },
   { chave: "responsavelId", coluna: "responsavel_id" },
+  { chave: "repeticoesQuantidade", coluna: "repeticoes_quantidade" },
+  { chave: "repeticoesUnidade", coluna: "repeticoes_unidade" },
   { chave: "ativo", coluna: "ativo" },
 ];
+
+// Campos cuja combinação afeta a geração de tarefas (calcularVencimentosDoModelo)
+// — quando qualquer um deles é alterado, a combinação *efetiva* (valor novo,
+// quando enviado; valor atual do banco, caso contrário) precisa ser
+// revalidada como um todo, não campo a campo isoladamente.
+const CAMPOS_QUE_AFETAM_GERACAO = [
+  "periodicidade", "diaReferencia", "diasSemana", "mesReferencia", "repeticoesQuantidade", "repeticoesUnidade",
+] as const;
 
 // PATCH /api/modelos-recorrencia/:id — atualização parcial, usada
 // principalmente para `{ ativo: false }` (desativar um modelo sem excluir:
@@ -55,15 +74,6 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     return applySetCookies(Response.json({ error: "Corpo da requisição inválido." }, { status: 400 }));
   }
 
-  if ("periodicidade" in payload) {
-    const periodicidade = payload.periodicidade;
-    if (!periodicidade || !PERIODICIDADES_VALIDAS.includes(periodicidade as Periodicidade)) {
-      return applySetCookies(
-        Response.json({ error: 'Periodicidade deve ser "mensal", "semanal" ou "anual".' }, { status: 400 }),
-      );
-    }
-  }
-
   if ("diaReferencia" in payload) {
     const diaReferencia = payload.diaReferencia;
     if (typeof diaReferencia !== "number" || !Number.isInteger(diaReferencia)) {
@@ -71,15 +81,10 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     }
   }
 
-  // Se periodicidade e/ou diaReferencia estão sendo alterados, valida a
-  // combinação efetiva (o valor novo, quando enviado; o valor atual do
-  // banco, caso contrário) contra a faixa plausível — evita, por exemplo,
-  // que só a periodicidade mude para "semanal" enquanto o diaReferencia
-  // salvo continua em 31.
-  if ("periodicidade" in payload || "diaReferencia" in payload) {
+  if (CAMPOS_QUE_AFETAM_GERACAO.some((campo) => campo in payload)) {
     const { data: modeloAtual, error: buscarError } = await supabase
       .from("modelos_recorrencia")
-      .select("periodicidade, dia_referencia")
+      .select("periodicidade, dia_referencia, dias_semana, mes_referencia, repeticoes_quantidade, repeticoes_unidade")
       .eq("id", id)
       .maybeSingle();
 
@@ -93,20 +98,45 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       return applySetCookies(Response.json({ error: "Modelo de recorrência não encontrado." }, { status: 404 }));
     }
 
-    const atual = modeloAtual as { periodicidade: string; dia_referencia: number };
-    const periodicidadeEfetiva = payload.periodicidade ?? atual.periodicidade;
+    const atual = modeloAtual as {
+      periodicidade: string; dia_referencia: number; dias_semana: number[] | null;
+      mes_referencia: number | null; repeticoes_quantidade: number | null; repeticoes_unidade: string | null;
+    };
+
+    const periodicidadeEfetiva = (payload.periodicidade ?? atual.periodicidade) as Periodicidade;
+    if (!PERIODICIDADES_VALIDAS.includes(periodicidadeEfetiva)) {
+      return applySetCookies(
+        Response.json({ error: 'Periodicidade deve ser "diario", "semanal", "mensal" ou "anual".' }, { status: 400 }),
+      );
+    }
+
     const diaEfetivo = payload.diaReferencia ?? atual.dia_referencia;
     const maxDia = faixaDiaReferencia(periodicidadeEfetiva);
-
     if (diaEfetivo < 1 || diaEfetivo > maxDia) {
       return applySetCookies(
-        Response.json(
-          {
-            error: `Dia de referência deve estar entre 1 e ${maxDia} para periodicidade "${periodicidadeEfetiva}".`,
-          },
-          { status: 400 },
-        ),
+        Response.json({ error: `Dia de referência deve estar entre 1 e ${maxDia}.` }, { status: 400 }),
       );
+    }
+
+    if (periodicidadeEfetiva === "semanal") {
+      const diasSemanaEfetivo = "diasSemana" in payload ? payload.diasSemana : atual.dias_semana;
+      const erroDias = validarDiasSemana(diasSemanaEfetivo);
+      if (erroDias) {
+        return applySetCookies(Response.json({ error: erroDias }, { status: 400 }));
+      }
+    } else if (periodicidadeEfetiva === "anual") {
+      const mesEfetivo = "mesReferencia" in payload ? payload.mesReferencia : atual.mes_referencia;
+      const erroMes = validarMesReferencia(mesEfetivo);
+      if (erroMes) {
+        return applySetCookies(Response.json({ error: erroMes }, { status: 400 }));
+      }
+    }
+
+    const quantidadeEfetiva = "repeticoesQuantidade" in payload ? payload.repeticoesQuantidade ?? null : atual.repeticoes_quantidade;
+    const unidadeEfetiva = "repeticoesUnidade" in payload ? payload.repeticoesUnidade ?? null : atual.repeticoes_unidade;
+    const erroRepeticoes = validarRepeticoes(periodicidadeEfetiva, quantidadeEfetiva, unidadeEfetiva);
+    if (erroRepeticoes) {
+      return applySetCookies(Response.json({ error: erroRepeticoes }, { status: 400 }));
     }
   }
 

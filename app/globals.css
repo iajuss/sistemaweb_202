@@ -105,17 +105,17 @@ html[data-theme="dark"][data-vision="colorblind"] .calendar-task.late{background
 .segmented button{flex:1;background:transparent;border:0;padding:8px 10px;border-radius:6px;color:#62767d;font-size:12px;font-weight:bold;cursor:pointer}
 .segmented button.selected{background:#fff;color:var(--primary);box-shadow:0 1px 3px #cbd8d8}
 .inline-error{margin:0;color:#b4453d;font-size:12px;font-weight:600}
-.task-popover{position:fixed;z-index:50;background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);width:min(280px,calc(100vw - 24px));padding:14px;display:grid;gap:10px}
+.task-popover{background:#fff;border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);width:min(440px,calc(100vw - 32px));padding:24px;display:grid;gap:16px}
 .task-popover-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
-.task-popover-head strong{font-size:14px;color:var(--text);line-height:1.3}
-.task-popover-head .close{position:static;background:transparent;border:0;font-size:18px;color:var(--muted);cursor:pointer;line-height:1}
-.task-popover-body{display:grid;gap:7px;margin:0}
+.task-popover-head strong{font-size:19px;color:var(--text);line-height:1.3}
+.task-popover-head .close{position:static;background:transparent;border:0;font-size:22px;color:var(--muted);cursor:pointer;line-height:1}
+.task-popover-body{display:grid;gap:10px;margin:0}
 .task-popover-body>div{display:flex;justify-content:space-between;gap:12px;align-items:center}
-.task-popover-body dt{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
-.task-popover-body dd{margin:0;font-size:12px;color:var(--text);font-weight:600;text-align:right}
-.task-popover-holiday{margin:0;font-size:11px;color:#ae7619;background:#fff9ed;padding:6px 8px;border-radius:6px}
-.task-popover-actions{display:flex;gap:6px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:10px}
-.task-popover-actions button{flex:1;min-width:72px;border:1px solid var(--border);background:#fff;color:#33454b;border-radius:7px;padding:7px 8px;font-size:12px;font-weight:600;cursor:pointer}
+.task-popover-body dt{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.task-popover-body dd{margin:0;font-size:14px;color:var(--text);font-weight:600;text-align:right}
+.task-popover-holiday{margin:0;font-size:12px;color:#ae7619;background:#fff9ed;padding:8px 10px;border-radius:6px}
+.task-popover-actions{display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:14px}
+.task-popover-actions button{flex:1;min-width:80px;border:1px solid var(--border);background:#fff;color:#33454b;border-radius:7px;padding:9px 10px;font-size:13px;font-weight:600;cursor:pointer}
 .task-popover-actions button:hover{background:#f3f6f6}
 .task-popover-actions button.danger{color:#b4453d;border-color:#e6c4c1}
 html[data-theme="dark"] .nav-arrow,html[data-theme="dark"] .nav-today{background:#152a31;border-color:#41616b;color:#88c0d0}
