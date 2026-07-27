@@ -21,10 +21,24 @@ const nav: { label: View; icon: string }[] = [
   { label: "Visão geral", icon: "⌂" }, { label: "Onboarding", icon: "＋" }, { label: "Auditoria", icon: "◈" },
   { label: "Análise", icon: "▥" }, { label: "Calendário", icon: "□" },
 ];
+const SITUACOES_CADASTRAIS = ["", "Ativa", "Suspensa", "Baixada", "Inapta", "Nula"];
+const opcoesSituacaoCadastral = (situacao: string) => situacao && !SITUACOES_CADASTRAIS.includes(situacao) ? [situacao, ...SITUACOES_CADASTRAIS] : SITUACOES_CADASTRAIS;
 const formatDate = (date: string) => new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" }).format(new Date(`${date}T12:00:00`));
 /** Data/hora completas no horário de Brasília, independente do fuso do navegador — usado no histórico de divergências. */
 const formatDataHoraBrasilia = (isoComFuso: string) =>
   new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(isoComFuso));
+const formatadorDataBrasil = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" });
+const hojeBrasil = () => formatadorDataBrasil.format(new Date());
+const somarDiasBrasil = (data: string, dias: number) => {
+  const [ano, mes, dia] = data.split("-").map(Number);
+  const resultado = new Date(Date.UTC(ano, mes - 1, dia + dias));
+  return `${resultado.getUTCFullYear()}-${String(resultado.getUTCMonth() + 1).padStart(2, "0")}-${String(resultado.getUTCDate()).padStart(2, "0")}`;
+};
+const proximoMesBrasil = (mes: string) => {
+  const [ano, numeroMes] = mes.split("-").map(Number);
+  const proximo = new Date(Date.UTC(ano, numeroMes, 1));
+  return `${proximo.getUTCFullYear()}-${String(proximo.getUTCMonth() + 1).padStart(2, "0")}`;
+};
 /** Evita "...obrigatórios.. Tente novamente." quando a mensagem do servidor já termina em ponto. */
 const semPontoFinal = (mensagem: string) => mensagem.replace(/\.+$/, "");
 
@@ -73,7 +87,7 @@ function CamposCadastraisFields<T extends CamposCadastraisDraft>({ draft, setDra
     <label>Cidade<input value={draft.cidade} onChange={(e) => setDraft({ ...draft, cidade: e.target.value })} /></label>
     <label>Estado<input maxLength={2} value={draft.estado} onChange={(e) => setDraft({ ...draft, estado: e.target.value.toUpperCase() })} /></label>
     <label className="full">Endereço<input value={draft.endereco} onChange={(e) => setDraft({ ...draft, endereco: e.target.value })} /></label>
-    <label>Situação cadastral<select value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value })}><option value="Ativa">Ativa</option><option value="Suspensa">Suspensa</option><option value="Baixada">Baixada</option></select></label>
+    <label>Situação cadastral<select value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value })}>{opcoesSituacaoCadastral(draft.status).map((situacao) => <option key={situacao || "nao-informada"} value={situacao}>{situacao || "Não informada"}</option>)}</select></label>
     <label>Porte<input value={draft.porte} onChange={(e) => setDraft({ ...draft, porte: e.target.value })} /></label>
     <label>Código CNAE<input value={draft.cnaeCodigo} onChange={(e) => setDraft({ ...draft, cnaeCodigo: e.target.value })} /></label>
     <label className="full">Descrição do CNAE<input value={draft.cnae} onChange={(e) => setDraft({ ...draft, cnae: e.target.value })} /></label>
@@ -152,12 +166,21 @@ function EmpresaEditModal({ empresa, perfis, onClose, onSaved }: {
   </div>{!cnpjValido && <div className="notice error"><p>CNPJ inválido — confira os números antes de salvar.</p></div>}{error && <div className="notice error"><p>{error}</p></div>}<button className="primary" disabled={saving || !cnpjValido}>{saving ? "Salvando…" : "Salvar alterações"}</button></form></div>;
 }
 
+function ConfirmarExclusaoEmpresa({ empresa, saving, error, onClose, onConfirm }: {
+  empresa: Empresa; saving: boolean; error: string; onClose: () => void; onConfirm: () => void;
+}) {
+  return <div className="modal-layer" role="dialog" aria-modal="true" aria-label="Confirmar exclusão"><div className="modal"><button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button><h2>Excluir empresa</h2><p>Tem certeza que deseja excluir <strong>{empresa.razaoSocial}</strong> da carteira? Divergências, tarefas e modelos de recorrência associados a ela também serão removidos. Essa ação não pode ser desfeita.</p>{error && <div className="notice error"><p>{error}</p></div>}<button type="button" className="primary danger" onClick={onConfirm} disabled={saving}>{saving ? "Excluindo…" : "Excluir definitivamente"}</button></div></div>;
+}
+
 function Badge({ children, tone = "neutral" }: { children: ReactNode; tone?: string }) {
   return <span className={`badge ${tone}`}>{children}</span>;
 }
 
-function statusTone(status: string): "success" | "warning" | "danger" {
-  return status === "Ativa" ? "success" : status === "Suspensa" ? "warning" : "danger";
+function statusTone(status: string): "success" | "warning" | "danger" | "neutral" {
+  if (status === "Ativa") return "success";
+  if (status === "Suspensa") return "warning";
+  if (status === "Baixada") return "neutral";
+  return "danger";
 }
 
 function Card({ title, value, helper, icon }: { title: string; value: string | number; helper: string; icon: string }) {
@@ -176,15 +199,26 @@ export function HomeClient({ userName, userEmail }: { userName: string; userEmai
   const [companies, setCompanies] = useState<Empresa[]>([]);
   const [issues, setIssues] = useState<Divergencia[]>([]);
   const [tasks, setTasks] = useState<Tarefa[]>([]);
+  const [weekTasks, setWeekTasks] = useState<Tarefa[]>([]);
   const [perfis, setPerfis] = useState<{ id: string; nome: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
-    Promise.all([listarEmpresas(), listarDivergencias(), listarTarefas(), listarPerfis()])
-      .then(([c, d, t, p]) => { setCompanies(c); setIssues(d); setTasks(t); setPerfis(p); setLoading(false); })
+    const mesAtual = hojeBrasil().slice(0, 7);
+    Promise.all([listarEmpresas(), listarDivergencias(), listarTarefas(mesAtual), listarPerfis()])
+      .then(([c, d, t, p]) => {
+        setCompanies(c); setIssues(d); setTasks(t); setWeekTasks(t); setPerfis(p); setLoading(false);
+        listarTarefas(proximoMesBrasil(mesAtual)).then((proximas) => setWeekTasks([...t, ...proximas])).catch(() => undefined);
+      })
       .catch(() => { setLoadError(true); setLoading(false); });
   }, []);
+
+  const atualizarTarefas = (atualizadas: Tarefa[]) => {
+    const mesAtual = hojeBrasil().slice(0, 7);
+    setTasks(atualizadas);
+    setWeekTasks((anteriores) => [...atualizadas, ...anteriores.filter((t) => t.vencimento.slice(0, 7) !== mesAtual)]);
+  };
 
   useEffect(() => {
     setDarkMode(window.localStorage.getItem("controle-carteira-theme") === "dark");
@@ -203,11 +237,11 @@ export function HomeClient({ userName, userEmail }: { userName: string; userEmai
   };
 
   const content = loading ? <Loading /> : (
-    view === "Visão geral" ? <Overview companies={companies} issues={issues} tasks={tasks} go={setView} /> :
+    view === "Visão geral" ? <Overview companies={companies} issues={issues} tasks={tasks} weekTasks={weekTasks} go={setView} /> :
     view === "Onboarding" ? <Onboarding companies={companies} setCompanies={setCompanies} perfis={perfis} userName={userName} setIssues={setIssues} /> :
     view === "Auditoria" ? <Audit issues={issues} setIssues={setIssues} companies={companies} setCompanies={setCompanies} perfis={perfis} /> :
     view === "Análise" ? <Analysis companies={companies} /> :
-    view === "Calendário" ? <Calendar tasks={tasks} setTasks={setTasks} companies={companies} perfis={perfis} /> :
+    view === "Calendário" ? <Calendar tasks={tasks} setTasks={atualizarTarefas} companies={companies} perfis={perfis} /> :
     <Settings userName={userName} userEmail={userEmail} />
   );
 
@@ -294,9 +328,10 @@ function Settings({ userName, userEmail }: { userName: string; userEmail: string
   </>;
 }
 
-function Overview({ companies, issues, tasks, go }: { companies: Empresa[]; issues: Divergencia[]; tasks: Tarefa[]; go: (view: View) => void }) {
+function Overview({ companies, issues, tasks, weekTasks, go }: { companies: Empresa[]; issues: Divergencia[]; tasks: Tarefa[]; weekTasks: Tarefa[]; go: (view: View) => void }) {
   const active = companies.filter((c) => c.status === "Ativa").length;
-  const due = tasks.filter((t) => t.status !== "Concluída" && t.vencimento <= "2026-07-31").length;
+  const limiteDaSemana = somarDiasBrasil(hojeBrasil(), 6);
+  const due = weekTasks.filter((t) => !["Concluída", "Cancelada"].includes(t.status) && t.vencimento <= limiteDaSemana).length;
   return <>
     <section className="hero"><div><Badge tone="blue">Carteira em acompanhamento</Badge><h2>Uma visão clara da sua operação.</h2><p>Centralize cadastros, encontre inconsistências e mantenha as entregas do escritório no prazo.</p></div><button className="primary" onClick={() => go("Onboarding")}>Cadastrar empresa <span>→</span></button></section>
     <section className="metrics"><Card title="Empresas na carteira" value={companies.length} helper={`${active} com situação ativa`} icon="▦" /><Card title="Divergências pendentes" value={issues.filter((i) => i.status === "Pendente").length} helper="Requerem uma decisão" icon="◇" /><Card title="Vencimentos da semana" value={due} helper="Inclui tarefas em atraso" icon="◷" /></section>
@@ -411,7 +446,7 @@ function Onboarding({ companies, setCompanies, perfis, userName, setIssues }: {
       <div className="dropdown-menu" role="menu" style={{ top: menuAnchor.top, right: menuAnchor.right }}><button type="button" role="menuitem" onClick={() => openEdit(c)}>Editar</button><button type="button" role="menuitem" className="danger" onClick={() => { closeMenu(); setDeleting(c); setDeleteError(""); }}>Excluir</button></div>
     </>}</td></tr>)}</tbody></table>{listed.length === 0 && <Empty />}</section>
     {editing && <EmpresaEditModal empresa={editing} perfis={perfis} onClose={() => setEditing(null)} onSaved={handleEmpresaSalva} />}
-    {deleting && <div className="modal-layer" role="dialog" aria-modal="true" aria-label="Confirmar exclusão"><div className="modal"><button type="button" className="close" onClick={() => setDeleting(null)} aria-label="Fechar">×</button><h2>Excluir empresa</h2><p>Tem certeza que deseja excluir <strong>{deleting.razaoSocial}</strong> da carteira? Divergências, tarefas e modelos de recorrência associados a ela também serão removidos. Essa ação não pode ser desfeita.</p>{deleteError && <div className="notice error"><p>{deleteError}</p></div>}<button type="button" className="primary danger" onClick={confirmDelete} disabled={deleteSaving}>{deleteSaving ? "Excluindo…" : "Excluir definitivamente"}</button></div></div>}
+    {deleting && <ConfirmarExclusaoEmpresa empresa={deleting} saving={deleteSaving} error={deleteError} onClose={() => setDeleting(null)} onConfirm={confirmDelete} />}
   </>;
 }
 
@@ -479,6 +514,7 @@ function ResolverDuplicidade({ divergencia, issues, companies, onClose, onResolv
   divergencia: Divergencia; issues: Divergencia[]; companies: Empresa[]; onClose: () => void; onResolved: (fechar: boolean) => void;
 }) {
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
+  const [empresaParaExcluir, setEmpresaParaExcluir] = useState<Empresa | null>(null);
   const [excluidos, setExcluidos] = useState<Set<string>>(new Set());
   const [error, setError] = useState("");
   // Guarda síncrona contra dois cliques em rajada (ex.: um segundo clique
@@ -518,7 +554,7 @@ function ResolverDuplicidade({ divergencia, issues, companies, onClose, onResolv
   const melhorCompletude = Math.max(0, ...cartoes.filter((e) => divergenciasPendentes(e.id, issues) === melhorDivergencias).map(completudeCadastro));
 
   const excluir = async (id: string) => {
-    if (excluindoEmAndamento.current) return;
+    if (excluindoEmAndamento.current) return false;
     excluindoEmAndamento.current = true;
     setExcluindoId(id); setError("");
     try {
@@ -526,9 +562,11 @@ function ResolverDuplicidade({ divergencia, issues, companies, onClose, onResolv
       const restantes = cartoes.filter((c) => c.id !== id);
       setExcluidos((prev) => new Set(prev).add(id));
       onResolved(restantes.length <= 1);
+      return true;
     } catch (err) {
       const bruta = err instanceof Error ? err.message : "Não foi possível excluir a empresa";
       setError(`${semPontoFinal(bruta)}. Tente novamente.`);
+      return false;
     } finally {
       excluindoEmAndamento.current = false;
       setExcluindoId(null);
@@ -557,8 +595,9 @@ function ResolverDuplicidade({ divergencia, issues, companies, onClose, onResolv
         <summary>Quadro societário{e.socios.length > 0 ? ` (${e.socios.length})` : ""}</summary>
         <div className="socios-list">{e.socios.length > 0 ? e.socios.map((s, i) => <p key={i} className="static-value">{s}</p>) : <p className="static-value">Nenhum sócio informado.</p>}</div>
       </details>
-      <button type="button" className="primary danger" onClick={() => excluir(e.id)} disabled={excluindoId !== null}>{excluindoId === e.id ? "Excluindo…" : "Excluir esta empresa"}</button>
+      <button type="button" className="primary danger" onClick={() => { setError(""); setEmpresaParaExcluir(e); }} disabled={excluindoId !== null}>{excluindoId === e.id ? "Excluindo…" : "Excluir esta empresa"}</button>
     </article>; })}</div>
+    {empresaParaExcluir && <ConfirmarExclusaoEmpresa empresa={empresaParaExcluir} saving={excluindoId === empresaParaExcluir.id} error={error} onClose={() => setEmpresaParaExcluir(null)} onConfirm={async () => { if (await excluir(empresaParaExcluir.id)) setEmpresaParaExcluir(null); }} />}
   </div></div>;
 }
 
@@ -704,7 +743,7 @@ function Analysis({ companies }: { companies: Empresa[] }) {
   const anoAtual = new Date().getFullYear();
   const filtered = companies.filter((c) => (state === "Todos" || c.estado === state) && (size === "Todos" || c.porte === size) && (situation === "Todos" || c.status === situation) && `${c.razaoSocial} ${c.cnae}`.toLowerCase().includes(search.toLowerCase()));
   const count = (key: keyof Empresa) => Object.entries(filtered.reduce((a, c) => ({ ...a, [String(c[key])]: (a[String(c[key])] || 0) + 1 }), {} as Record<string, number>)).map(([name, value]) => ({ name, value }));
-  const stateData = count("estado").sort((a, b) => b.value - a.value).slice(0, 7); const sizeData = count("porte"); const cnaeData = count("cnae").sort((a, b) => b.value - a.value).slice(0, 5); const statusData = count("status");
+  const stateData = count("estado").sort((a, b) => b.value - a.value); const sizeData = count("porte"); const cnaeData = count("cnae").sort((a, b) => b.value - a.value); const statusData = count("status");
   const anoAbertura = (c: Empresa) => (c.abertura ? new Date(c.abertura).getFullYear() : null);
   const ages = [{ name: "até 3 anos", value: filtered.filter((c) => { const a = anoAbertura(c); return a !== null && a >= anoAtual - 3; }).length }, { name: "4 a 8 anos", value: filtered.filter((c) => { const a = anoAbertura(c); return a !== null && a >= anoAtual - 8 && a < anoAtual - 3; }).length }, { name: "9 a 15 anos", value: filtered.filter((c) => { const a = anoAbertura(c); return a !== null && a >= anoAtual - 15 && a < anoAtual - 8; }).length }, { name: "mais de 15", value: filtered.filter((c) => { const a = anoAbertura(c); return a !== null && a < anoAtual - 15; }).length }];
 
@@ -727,11 +766,11 @@ function Analysis({ companies }: { companies: Empresa[] }) {
 
   return <>
     <section className="section-head"><div><h2>Composição da carteira</h2><p>Explore o perfil dos clientes cadastrados.</p></div><Badge tone="blue">{filtered.length} empresas</Badge></section>
-    <section className="filters analysis-filters"><input aria-label="Buscar por empresa ou CNAE" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar empresa ou atividade" />{[[state, setState, ["Todos", ...Array.from(new Set(companies.map((c) => c.estado)))]], [size, setSize, ["Todos", ...Array.from(new Set(companies.map((c) => c.porte)))]], [situation, setSituation, ["Todos", "Ativa", "Suspensa", "Baixada"]]].map(([value, setter, options], i) => <select key={i} value={value as string} onChange={(e) => (setter as (v: string) => void)(e.target.value)}>{(options as string[]).map((o) => <option key={o}>{o}</option>)}</select>)}</section>
+    <section className="filters analysis-filters"><input aria-label="Buscar por empresa ou CNAE" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar empresa ou atividade" />{[[state, setState, ["Todos", ...Array.from(new Set(companies.map((c) => c.estado)))]], [size, setSize, ["Todos", ...Array.from(new Set(companies.map((c) => c.porte)))]], [situation, setSituation, ["Todos", ...Array.from(new Set(companies.map((c) => c.status)))] ]].map(([value, setter, options], i) => <select key={i} value={value as string} onChange={(e) => (setter as (v: string) => void)(e.target.value)}>{(options as string[]).map((o) => <option key={o}>{o}</option>)}</select>)}</section>
     {filtered.length === 0 ? <Empty title="Sem empresas para analisar" text="Nenhum cadastro corresponde aos filtros selecionados." /> : <Suspense fallback={<div className="chart-grid-loading">Carregando gráficos…</div>}><section className="chart-grid">
-      <ChartCard title="Empresas por estado" hint="Clique para detalhar"><BarVisual data={stateData} onSelect={(nome) => abrirSegmento("estado", nome)} /></ChartCard>
+      <ChartCard title="Empresas por estado" hint="Clique para detalhar"><BarVisual data={stateData} scrollable onSelect={(nome) => abrirSegmento("estado", nome)} /></ChartCard>
       <ChartCard title="Distribuição por porte" hint="Clique para detalhar"><PieVisual data={sizeData} onSelect={(nome) => abrirSegmento("porte", nome)} /></ChartCard>
-      <ChartCard title="Principais CNAEs" hint="Passe o mouse e clique para ver"><PieVisual data={cnaeData} legend={false} onSelect={(nome) => abrirSegmento("cnae", nome)} /></ChartCard>
+      <ChartCard title="Principais CNAEs" hint="Clique para ver empresas"><CnaeRanking data={cnaeData} onSelect={(nome) => abrirSegmento("cnae", nome)} /></ChartCard>
       <ChartCard title="Situação cadastral" hint="Clique para detalhar"><PieVisual data={statusData} onSelect={(nome) => abrirSegmento("status", nome)} /></ChartCard>
       <ChartCard title="Tempo de abertura" hint="Clique para detalhar"><BarVisual data={ages} onSelect={(nome) => abrirSegmento("idade", nome)} /></ChartCard>
       <article className="chart-card insight"><span>✦</span><h3>Leitura rápida</h3><p><strong>{filtered.filter((c) => c.status === "Ativa").length} empresas</strong> estão ativas. O perfil mais comum é <strong>{sizeData.sort((a,b) => b.value-a.value)[0]?.name}</strong>.</p><small>Dados atualizados a partir dos cadastros da carteira.</small></article>
@@ -740,6 +779,14 @@ function Analysis({ companies }: { companies: Empresa[] }) {
   </>;
 }
 function ChartCard({ title, children, hint }: { title: string; children: ReactNode; hint?: string }) { return <article className="chart-card"><h3>{title}{hint && <small className="chart-hint">{hint}</small>}</h3><div className="chart">{children}</div></article>; }
+function CnaeRanking({ data, onSelect }: { data: { name: string; value: number }[]; onSelect: (name: string) => void }) {
+  const maiorValor = Math.max(...data.map((item) => item.value), 1);
+  return <div className="cnae-ranking-scroll"><div className="cnae-ranking" role="list" aria-label="Ranking de CNAEs">
+    {data.map((item, index) => <button type="button" className="cnae-ranking-item" role="listitem" key={item.name} onClick={() => onSelect(item.name)} aria-label={`Ver empresas do CNAE ${item.name}`}>
+      <span className="cnae-ranking-position">{String(index + 1).padStart(2, "0")}</span><span className="cnae-ranking-content"><strong>{item.name}</strong><span className="cnae-ranking-track" aria-hidden="true"><i style={{ width: `${Math.max((item.value / maiorValor) * 100, 5)}%` }} /></span></span><span className="cnae-ranking-value"><strong>{item.value}</strong><small>{item.value === 1 ? "empresa" : "empresas"}</small></span>
+    </button>)}
+  </div></div>;
+}
 
 function SegmentoModal({ titulo, empresas, onClose }: { titulo: string; empresas: Empresa[]; onClose: () => void }) {
   return <div className="modal-layer" role="dialog" aria-modal="true" aria-label={`Empresas — ${titulo}`}><div className="modal segmento-modal"><button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button><h2>{titulo}</h2><p>{empresas.length} {empresas.length === 1 ? "empresa encontrada" : "empresas encontradas"}</p>

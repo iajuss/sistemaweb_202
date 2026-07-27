@@ -15,7 +15,7 @@ export type EmpresaBrasilAPI = {
   cnaeCodigo: string;
   cnaeDescricao: string;
   porte: string;
-  situacaoCadastral: "Ativa" | "Suspensa" | "Baixada" | string;
+  situacaoCadastral: "Ativa" | "Suspensa" | "Baixada" | "Inapta" | "Nula" | (string & {});
   abertura: string | null; // ISO YYYY-MM-DD
   socios: { nome: string; papel: string }[];
 };
@@ -36,10 +36,12 @@ const BRASILAPI_CNPJ_URL = "https://brasilapi.com.br/api/cnpj/v1";
 // usuário clique em "Consultar" de novo manualmente.
 const ESPERAS_ENTRE_TENTATIVAS_MS = [500, 1500, 3000];
 
-const SITUACOES_CADASTRAIS_CONHECIDAS: Record<string, "Ativa" | "Suspensa" | "Baixada"> = {
+const SITUACOES_CADASTRAIS_CONHECIDAS: Record<string, "Ativa" | "Suspensa" | "Baixada" | "Inapta" | "Nula"> = {
   ATIVA: "Ativa",
   BAIXADA: "Baixada",
   SUSPENSA: "Suspensa",
+  INAPTA: "Inapta",
+  NULA: "Nula",
 };
 
 type RespostaBrasilAPI = {

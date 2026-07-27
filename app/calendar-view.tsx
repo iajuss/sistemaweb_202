@@ -453,6 +453,8 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
   };
   const irAno = (delta: number) => { setDetalhe(null); closeTaskMenu(); setViewAno((a) => a + delta); };
   const irHoje = () => { setDetalhe(null); closeTaskMenu(); setViewMes(mesHojeIndex); setViewAno(anoHoje); };
+  const escolherPeriodo = (mes: number, ano: number) => { setDetalhe(null); closeTaskMenu(); setViewMes(mes); setViewAno(ano); };
+  const anosDisponiveis = Array.from({ length: 11 }, (_, index) => viewAno - 5 + index);
 
   const refetchModelos = async (falhaParcial: string) => {
     try {
@@ -610,7 +612,7 @@ export function Calendar({ tasks, setTasks, companies, perfis }: { tasks: Tarefa
         <button type="button" className="nav-arrow" aria-label="Ano anterior" title="Ano anterior" onClick={() => irAno(-1)}>«</button>
         <button type="button" className="nav-arrow" aria-label="Mês anterior" title="Mês anterior" onClick={() => irMes(-1)}>‹</button>
       </div>
-      <div className="calendar-nav-label"><strong>{MESES_PT[viewMes]}</strong><span>{viewAno}</span></div>
+      <div className="calendar-period-picker"><select aria-label="Mês exibido" value={viewMes} onChange={(event) => escolherPeriodo(Number(event.target.value), viewAno)}>{MESES_PT.map((mes, index) => <option key={mes} value={index}>{mes}</option>)}</select><select aria-label="Ano exibido" value={viewAno} onChange={(event) => escolherPeriodo(viewMes, Number(event.target.value))}>{anosDisponiveis.map((ano) => <option key={ano} value={ano}>{ano}</option>)}</select></div>
       <div className="calendar-nav-group">
         <button type="button" className="nav-arrow" aria-label="Próximo mês" title="Próximo mês" onClick={() => irMes(1)}>›</button>
         <button type="button" className="nav-arrow" aria-label="Próximo ano" title="Próximo ano" onClick={() => irAno(1)}>»</button>
