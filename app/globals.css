@@ -193,3 +193,13 @@ html[data-vision="colorblind"][data-vision="colorblind"][data-vision="colorblind
 
 /* Estas duas tabelas nunca dependem de rolagem horizontal: elas se ajustam ao painel. */
 .models-table-wrap,.audit-table-wrap{overflow-x:clip}.models-table,.audit-table{width:100%;min-width:0!important;table-layout:fixed}.models-table th,.models-table td,.audit-table th,.audit-table td{min-width:0;overflow-wrap:anywhere;word-break:normal}.models-table th:nth-child(1){width:8%}.models-table th:nth-child(2){width:7%}.models-table th:nth-child(3){width:18%}.models-table th:nth-child(4){width:23%}.models-table th:nth-child(5){width:16%}.models-table th:nth-child(6){width:8%}.models-table th:nth-child(7){width:20%}.audit-table th:nth-child(1){width:20%}.audit-table th:nth-child(2){width:10%}.audit-table th:nth-child(3){width:25%}.audit-table th:nth-child(4){width:15%}.audit-table th:nth-child(5){width:12%}.audit-table th:nth-child(6){width:18%}.actions.model-actions,.actions.audit-actions{display:table-cell;vertical-align:middle;text-align:left;white-space:normal;min-width:0}.actions.model-actions{grid-template-columns:repeat(3,max-content)}.actions.audit-actions{grid-template-columns:repeat(2,minmax(min-content,1fr))}.actions .table-action{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;min-width:0;white-space:nowrap;overflow-wrap:normal;padding:7px 10px;margin:3px 6px 3px 0!important}.models-table td,.audit-table td{padding-left:10px;padding-right:10px}
+
+
+/* Ícones da navegação em SVG e logo do escritório na marca da barra lateral. */
+.nav-icon{display:grid;place-items:center;flex:none;width:18px;height:18px}
+.nav-icon svg{display:block;width:18px;height:18px}
+/* Especificidade alta de propósito: as regras antigas de `.sidebar nav button i`
+   (inclusive a versão recolhida, com dois `.sidebar`) fixavam 16px e font-size,
+   herdados do tempo em que o ícone era um glifo de texto. */
+.sidebar nav button .nav-icon,.sidebar.collapsed.sidebar nav button .nav-icon,.sidebar-footer .nav-icon{width:18px;height:18px;font-size:0;text-align:initial}
+.brand-logo{max-height:28px;max-width:132px;object-fit:contain;flex:none}

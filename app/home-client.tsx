@@ -18,9 +18,33 @@ const BarVisual = lazy(() => import("./charts").then((m) => ({ default: m.BarVis
 const PieVisual = lazy(() => import("./charts").then((m) => ({ default: m.PieVisual })));
 
 type View = "Visão geral" | "Onboarding" | "Auditoria" | "Análise" | "Calendário" | "Configurações";
-const nav: { label: View; icon: string }[] = [
-  { label: "Visão geral", icon: "⌂" }, { label: "Onboarding", icon: "＋" }, { label: "Auditoria", icon: "◈" },
-  { label: "Análise", icon: "▥" }, { label: "Calendário", icon: "□" },
+/** Ícones da navegação. Antes eram glifos Unicode (⌂ ＋ ◈ ▥ □), que variavam
+ * de largura conforme a fonte do sistema — o "＋" é de largura plena e
+ * estourava a caixa de 16px, deixando a coluna de ícones irregular. Em SVG
+ * todos partem do mesmo viewBox e herdam a cor do botão por `currentColor`. */
+const ICONE_SVG = {
+  viewBox: "0 0 20 20", fill: "none", stroke: "currentColor",
+  strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round",
+} as const;
+
+function NavIcon({ children }: { children: ReactNode }) {
+  return <i className="nav-icon" aria-hidden="true"><svg {...ICONE_SVG}>{children}</svg></i>;
+}
+
+const ICONE_CONFIGURACOES = <><path d="M3 6h8.1M15.9 6H17M3 14h1.1M8.9 14H17" /><circle cx="13.5" cy="6" r="1.9" /><circle cx="6.5" cy="14" r="1.9" /></>;
+const ICONE_SAIR = <><path d="M11.75 3.5H5.75A1.25 1.25 0 0 0 4.5 4.75v10.5a1.25 1.25 0 0 0 1.25 1.25h6" /><path d="M9.5 10h8" /><path d="m14.75 7.25 2.75 2.75-2.75 2.75" /></>;
+
+const nav: { label: View; icon: ReactNode }[] = [
+  // Painel 2x2: "visão geral" da operação, não uma casa.
+  { label: "Visão geral", icon: <><rect x="2.75" y="2.75" width="6" height="6" rx="1.4" /><rect x="11.25" y="2.75" width="6" height="6" rx="1.4" /><rect x="2.75" y="11.25" width="6" height="6" rx="1.4" /><rect x="11.25" y="11.25" width="6" height="6" rx="1.4" /></> },
+  // Prédio com "+": incluir uma empresa na carteira.
+  { label: "Onboarding", icon: <><path d="M3.25 17.25V5.5A1.25 1.25 0 0 1 4.5 4.25h5A1.25 1.25 0 0 1 10.75 5.5v11.75" /><path d="M2 17.25h10.75" /><path d="M5.75 7.75h2.25M5.75 11h2.25M5.75 14.25h2.25" /><path d="M15.5 6.75v5M13 9.25h5" /></> },
+  // Prancheta com visto: conferência dos cadastros.
+  { label: "Auditoria", icon: <><path d="M7.25 3.75H5.75A1.25 1.25 0 0 0 4.5 5v11.25a1.25 1.25 0 0 0 1.25 1.25h8.5a1.25 1.25 0 0 0 1.25-1.25V5a1.25 1.25 0 0 0-1.25-1.25h-1.5" /><rect x="7.25" y="2.25" width="5.5" height="3" rx="1" /><path d="m7.5 11.25 1.75 1.75 3.5-3.75" /></> },
+  // Barras: composição da carteira.
+  { label: "Análise", icon: <><path d="M3 17h14" /><path d="M6.25 17V10.25" /><path d="M10 17V4.5" /><path d="M13.75 17V7.75" /></> },
+  // Calendário: obrigações e prazos.
+  { label: "Calendário", icon: <><rect x="3" y="4.75" width="14" height="12.5" rx="1.75" /><path d="M3 8.75h14" /><path d="M7 2.75V5.5M13 2.75V5.5" /></> },
 ];
 const SITUACOES_CADASTRAIS = ["", "Ativa", "Suspensa", "Baixada", "Inapta", "Nula"];
 const opcoesSituacaoCadastral = (situacao: string) => situacao && !SITUACOES_CADASTRAIS.includes(situacao) ? [situacao, ...SITUACOES_CADASTRAIS] : SITUACOES_CADASTRAIS;
@@ -301,11 +325,11 @@ export function HomeClient({ userName, userEmail, papel }: { userName: string; u
     <a className="skip-link" href="#conteudo-principal">Pular para o conteúdo</a>
     <aside ref={mobileMenuRef} className={`sidebar ${menuOpen ? "open" : ""} ${sidebarCollapsed ? "collapsed" : ""}`} aria-label="Navegação principal">
       <div className="brand">
-        <div className="brand-identity"><span className="brand-mark">▣</span><span className="brand-name">Controle de carteira</span></div>
+        <div className="brand-identity">{logoUrl && <img className="brand-logo" src={logoUrl} alt="" />}<span className="brand-name">Controle de carteira</span></div>
         <button className="sidebar-toggle" type="button" title={sidebarCollapsed ? "Expandir menu" : "Recolher menu"} aria-label={sidebarCollapsed ? "Expandir navegação" : "Recolher navegação"} onClick={() => setSidebarCollapsed((current) => !current)}><span className="sidebar-glyph" aria-hidden="true" /></button>
       </div>
-      <nav>{nav.map((item) => <button key={item.label} title={sidebarCollapsed ? item.label : undefined} className={view === item.label ? "active" : ""} onClick={() => { setView(item.label); setMenuOpen(false); }}><i aria-hidden="true">{item.icon}</i><span className="nav-label">{item.label}</span></button>)}</nav>
-      <div className="sidebar-footer"><button className={`sidebar-settings ${view === "Configurações" ? "active" : ""}`} aria-label="Configurações" title="Configurações" onClick={() => { setView("Configurações"); setMenuOpen(false); }}><span className="settings-icon" aria-hidden="true">⚙</span><span className="nav-label">Configurações</span></button><button className="sidebar-logout" type="button" title="Sair da conta" onClick={logout}><span className="logout-icon" aria-hidden="true" /><span className="nav-label">Sair da conta</span></button></div>
+      <nav>{nav.map((item) => <button key={item.label} title={sidebarCollapsed ? item.label : undefined} className={view === item.label ? "active" : ""} onClick={() => { setView(item.label); setMenuOpen(false); }}><NavIcon>{item.icon}</NavIcon><span className="nav-label">{item.label}</span></button>)}</nav>
+      <div className="sidebar-footer"><button className={`sidebar-settings ${view === "Configurações" ? "active" : ""}`} aria-label="Configurações" title="Configurações" onClick={() => { setView("Configurações"); setMenuOpen(false); }}><NavIcon>{ICONE_CONFIGURACOES}</NavIcon><span className="nav-label">Configurações</span></button><button className="sidebar-logout" type="button" title="Sair da conta" onClick={logout}><NavIcon>{ICONE_SAIR}</NavIcon><span className="nav-label">Sair da conta</span></button></div>
     </aside>
     {menuOpen && <button className="backdrop" aria-label="Fechar menu" onClick={() => setMenuOpen(false)} />}
     <section className="workspace">
@@ -515,7 +539,7 @@ function Settings({ userName, userEmail, papel, logoUrl, onNameChange, onLogoCha
         </>}
         {escritorioMessage && <p className="settings-message error" role="alert">{escritorioMessage}</p>}
       </article>}
-      {papel === "responsavel" && <article className="panel settings-panel logo-panel"><div className="settings-panel-head"><span aria-hidden="true">▣</span><div><h3>Logo do cliente</h3><p>Use PNG, JPG ou WebP com até 2 MB. A logo aparecerá no cabeçalho após o envio.</p></div></div>{logoUrl && <img className="logo-preview" src={logoUrl} alt="Prévia da logo do cliente" />}<label className="logo-upload"><span>{enviandoLogo ? "Enviando…" : "Enviar logo"}</span><input type="file" accept="image/png,image/jpeg,image/webp" disabled={enviandoLogo} onChange={enviarLogo} /></label>{logoUrl && <button type="button" className="secondary" disabled={enviandoLogo} onClick={removerLogo}>Remover logo</button>}{logoMessage && <p className={logoMessage.includes("sucesso") || logoMessage === "Logo removida." ? "settings-message success" : "settings-message error"} role="status">{logoMessage}</p>}</article>}
+      {papel === "responsavel" && <article className="panel settings-panel logo-panel"><div className="settings-panel-head"><span aria-hidden="true">▣</span><div><h3>Logo do cliente</h3><p>Use PNG, JPG ou WebP com até 2 MB. A logo aparecerá no cabeçalho e na barra lateral após o envio.</p></div></div>{logoUrl && <img className="logo-preview" src={logoUrl} alt="Prévia da logo do cliente" />}<label className="logo-upload"><span>{enviandoLogo ? "Enviando…" : "Enviar logo"}</span><input type="file" accept="image/png,image/jpeg,image/webp" disabled={enviandoLogo} onChange={enviarLogo} /></label>{logoUrl && <button type="button" className="secondary" disabled={enviandoLogo} onClick={removerLogo}>Remover logo</button>}{logoMessage && <p className={logoMessage.includes("sucesso") || logoMessage === "Logo removida." ? "settings-message success" : "settings-message error"} role="status">{logoMessage}</p>}</article>}
       {papel === "responsavel" && <article className="panel settings-panel equipe-panel">
         <div className="settings-panel-head"><span aria-hidden="true">◍</span><div><h3>Equipe</h3><p>Convide funcionários para trabalhar junto com você neste espaço.</p></div></div>
         <form className="settings-form convite-form" onSubmit={convidar}>
