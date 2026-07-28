@@ -52,6 +52,28 @@ const nav: { label: View; icon: ReactNode }[] = [
   // Calendário: obrigações e prazos.
   { label: "Calendário", icon: <><rect x="3" y="4.75" width="14" height="12.5" rx="1.75" /><path d="M3 8.75h14" /><path d="M7 2.75V5.5M13 2.75V5.5" /></> },
 ];
+
+// Ícones dos cards da Visão geral (métricas + atalhos), no mesmo estilo SVG
+// da navegação — antes eram glifos Unicode (▦ ◇ ◷ ＋ ◈ ▥ □), que ficavam
+// visualmente destoantes da barra lateral (traço fino e consistente).
+const ICONE_CARTEIRA = <><rect x="3" y="6.75" width="14" height="9.5" rx="1.6" /><path d="M7.25 6.75V5.25A1.5 1.5 0 0 1 8.75 3.75h2.5a1.5 1.5 0 0 1 1.5 1.5v1.5" /><path d="M3 11h14" /></>;
+// Losango de alerta com "!": mesma ideia do ◇ original, mas comunicando
+// que é uma pendência que requer atenção, não só um marcador neutro.
+const ICONE_DIVERGENCIA = <><rect x="6.05" y="6.05" width="7.9" height="7.9" rx="1.3" transform="rotate(45 10 10)" /><path d="M10 7.6v3.1" /><path d="M10 12.75v.02" /></>;
+const ICONE_VENCIMENTO = <><circle cx="10" cy="10" r="7.25" /><path d="M10 6.25V10l2.75 1.75" /></>;
+
+// Ícones do topbar e das Configurações — antes eram glifos Unicode
+// (☰ ☼ ☾ ▣ ◍ ◉ ◌), que renderizam de forma inconsistente entre fontes de
+// sistema (Android/iOS/desktop), às vezes irreconhecíveis num celular
+// específico. Mesmo tratamento dado aos outros ícones do app.
+const ICONE_MENU = <><path d="M3 6h14M3 10h14M3 14h14" /></>;
+const ICONE_SOL = <><circle cx="10" cy="10" r="3.2" /><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.8 4.8l1.4 1.4M13.8 13.8l1.4 1.4M4.8 15.2l1.4-1.4M13.8 6.2l1.4-1.4" /></>;
+const ICONE_LUA = <><path d="M15.5 12.2A6.3 6.3 0 1 1 7.8 4.5a5.1 5.1 0 0 0 7.7 7.7z" /></>;
+// Moldura com montanha e sol: representa uma imagem/logo enviada.
+const ICONE_LOGO_CARD = <><rect x="3" y="4" width="14" height="12" rx="1.5" /><circle cx="7.2" cy="8.2" r="1.3" /><path d="m4 15 4-4 3 3 3.5-4.5L17 13" /></>;
+const ICONE_EQUIPE = <><circle cx="7.2" cy="7" r="2.3" /><path d="M2.8 16c0-2.6 2-4.4 4.4-4.4S11.6 13.4 11.6 16" /><circle cx="14.2" cy="7.8" r="1.9" /><path d="M13 11.9c2 .1 3.6 1.6 3.8 4" /></>;
+const ICONE_SENHA = <><rect x="4.5" y="9" width="11" height="8" rx="1.5" /><path d="M6.5 9V6.5a3.5 3.5 0 0 1 7 0V9" /><path d="M10 12.4v.7" /></>;
+const ICONE_DALTONISMO = <><path d="M2 10s3-5.5 8-5.5S18 10 18 10s-3 5.5-8 5.5S2 10 2 10z" /><circle cx="10" cy="10" r="2.5" /></>;
 const SITUACOES_CADASTRAIS = ["", "Ativa", "Suspensa", "Baixada", "Inapta", "Nula"];
 const opcoesSituacaoCadastral = (situacao: string) => situacao && !SITUACOES_CADASTRAIS.includes(situacao) ? [situacao, ...SITUACOES_CADASTRAIS] : SITUACOES_CADASTRAIS;
 const formatDate = (date: string) => new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" }).format(new Date(`${date}T12:00:00`));
@@ -230,8 +252,8 @@ function statusTone(status: string): "success" | "warning" | "danger" | "neutral
   return "danger";
 }
 
-function Card({ title, value, helper, icon }: { title: string; value: string | number; helper: string; icon: string }) {
-  return <article className="metric-card"><span className="metric-icon" aria-hidden="true">{icon}</span><p>{title}</p><strong>{value}</strong><small>{helper}</small></article>;
+function Card({ title, value, helper, icon }: { title: string; value: string | number; helper: string; icon: ReactNode }) {
+  return <article className="metric-card"><span className="metric-icon" aria-hidden="true"><svg {...ICONE_SVG} width={18} height={18}>{icon}</svg></span><p>{title}</p><strong>{value}</strong><small>{helper}</small></article>;
 }
 
 function Empty({ title = "Nenhum resultado encontrado", text = "Ajuste seus filtros ou tente novamente." }) {
@@ -358,8 +380,8 @@ export function HomeClient({ userName, userEmail, papel }: { userName: string; u
     {menuOpen && <button className="backdrop" aria-label="Fechar menu" onClick={() => setMenuOpen(false)} />}
     <section className="workspace">
       <header className="topbar">
-        <div className="topbar-title"><button className="menu-button" aria-label="Abrir menu" onClick={() => setMenuOpen(true)}>☰</button><div><p className="eyebrow">Gestão contábil</p><h1>{view}</h1></div></div>
-        <div className="header-actions"><span className="header-divider" aria-hidden="true" /><button className={`theme-button ${darkMode ? "active" : ""}`} type="button" aria-label="Alternar entre modo claro e escuro" aria-pressed={darkMode} title="Alternar modo claro e escuro" onClick={toggleTheme}><span aria-hidden="true">☼</span><span aria-hidden="true">☾</span></button>{logoUrl && <img className="client-logo" src={logoUrl} alt="Logo do escritório" />}{nomeEscritorio && exibirNomeNoHeader && <span className="header-office-name">{nomeEscritorio}</span>}</div>
+        <div className="topbar-title"><button className="menu-button" aria-label="Abrir menu" onClick={() => setMenuOpen(true)}><svg {...ICONE_SVG} width={20} height={20}>{ICONE_MENU}</svg></button><div><p className="eyebrow">Gestão contábil</p><h1>{view}</h1></div></div>
+        <div className="header-actions"><span className="header-divider" aria-hidden="true" /><button className={`theme-button ${darkMode ? "active" : ""}`} type="button" aria-label="Alternar entre modo claro e escuro" aria-pressed={darkMode} title="Alternar modo claro e escuro" onClick={toggleTheme}><span aria-hidden="true"><svg {...ICONE_SVG} width={14} height={14}>{ICONE_SOL}</svg></span><span aria-hidden="true"><svg {...ICONE_SVG} width={14} height={14}>{ICONE_LUA}</svg></span></button>{logoUrl && <img className="client-logo" src={logoUrl} alt="Logo do escritório" />}{nomeEscritorio && exibirNomeNoHeader && <span className="header-office-name">{nomeEscritorio}</span>}</div>
       </header>
       <div id="conteudo-principal" className="page-content" tabIndex={-1}>
         {loadError && <div className="notice error" role="alert"><strong>Não foi possível carregar os dados</strong><p>Tente atualizar a página.</p></div>}
@@ -549,7 +571,7 @@ function Settings({ userName, userEmail, papel, logoUrl, exibirNomeNaLateral, ex
 
   const numeroFuncionarios = equipe.filter((m) => m.papel === "funcionario").length;
 
-  const equipeTable = <table className="equipe-table">
+  const equipeTable = <div className="equipe-table-wrap"><table className="equipe-table">
     <thead><tr><th>Nome</th><th>E-mail</th><th>Papel</th><th>Status</th><th></th></tr></thead>
     <tbody>{equipe.map((m) => <tr key={m.id}>
       <td>{m.nome || "Convite pendente"}</td>
@@ -558,7 +580,7 @@ function Settings({ userName, userEmail, papel, logoUrl, exibirNomeNaLateral, ex
       <td>{m.ativo ? "Ativo" : "Inativo"}</td>
       <td>{m.papel === "funcionario" && <button type="button" className={`secondary ${m.ativo ? "destructive" : ""}`} disabled={atualizandoId === m.id} onClick={() => alternarAtivo(m)}>{atualizandoId === m.id ? "Aguarde…" : m.ativo ? "Desativar" : "Reativar"}</button>}</td>
     </tr>)}</tbody>
-  </table>;
+  </table></div>;
 
   return <>
     <section className="section-head settings-heading"><div><p className="eyebrow">Conta e acessibilidade</p><h2>Configurações</h2><p>Gerencie suas informações, segurança e preferências de visualização.</p></div></section>
@@ -577,9 +599,9 @@ function Settings({ userName, userEmail, papel, logoUrl, exibirNomeNaLateral, ex
         <fieldset className="escritorio-display-options" disabled={!preferenciasExibicaoDisponiveis || salvandoExibicaoNome}><legend>Exibir nome do escritório em</legend><label><input type="checkbox" checked={exibirNomeNaLateral} onChange={(event) => salvarExibicaoNome(event.target.checked, exibirNomeNoHeader)} />Barra lateral</label><label><input type="checkbox" checked={exibirNomeNoHeader} onChange={(event) => salvarExibicaoNome(exibirNomeNaLateral, event.target.checked)} />Header</label>{!preferenciasExibicaoDisponiveis && <small>Para ativar estas opções, aplique a migração 0024 no Supabase.</small>}</fieldset>
         {escritorioMessage && <p className="settings-message error" role="alert">{escritorioMessage}</p>}
       </article>}
-      {papel === "responsavel" && <article className="panel settings-panel logo-panel"><div className="settings-panel-head"><span aria-hidden="true">▣</span><div><h3>Logo do cliente</h3><p>Use PNG, JPG ou WebP com até 2 MB. A logo aparecerá no cabeçalho e na barra lateral após o envio.</p></div></div>{logoUrl && <img className="logo-preview" src={logoUrl} alt="Prévia da logo do cliente" />}<label className="logo-upload"><span>{enviandoLogo ? "Enviando…" : "Enviar logo"}</span><input type="file" accept="image/png,image/jpeg,image/webp" disabled={enviandoLogo} onChange={enviarLogo} /></label>{logoUrl && <button type="button" className="secondary destructive" disabled={enviandoLogo} onClick={removerLogo}>Remover logo</button>}{logoMessage && <p className={logoMessage.includes("sucesso") || logoMessage === "Logo removida." ? "settings-message success" : "settings-message error"} role="status">{logoMessage}</p>}</article>}
+      {papel === "responsavel" && <article className="panel settings-panel logo-panel"><div className="settings-panel-head"><span aria-hidden="true"><svg {...ICONE_SVG} width={18} height={18}>{ICONE_LOGO_CARD}</svg></span><div><h3>Logo do cliente</h3><p>Use PNG, JPG ou WebP com até 2 MB. A logo aparecerá no cabeçalho e na barra lateral após o envio.</p></div></div>{logoUrl && <img className="logo-preview" src={logoUrl} alt="Prévia da logo do cliente" />}<label className="logo-upload"><span>{enviandoLogo ? "Enviando…" : "Enviar logo"}</span><input type="file" accept="image/png,image/jpeg,image/webp" disabled={enviandoLogo} onChange={enviarLogo} /></label>{logoUrl && <button type="button" className="secondary destructive" disabled={enviandoLogo} onClick={removerLogo}>Remover logo</button>}{logoMessage && <p className={logoMessage.includes("sucesso") || logoMessage === "Logo removida." ? "settings-message success" : "settings-message error"} role="status">{logoMessage}</p>}</article>}
       {papel === "responsavel" && <article className="panel settings-panel equipe-panel">
-        <div className="settings-panel-head"><span aria-hidden="true">◍</span><div><h3>Equipe</h3><p>Convide funcionários para trabalhar junto com você neste espaço.</p></div></div>
+        <div className="settings-panel-head"><span aria-hidden="true"><svg {...ICONE_SVG} width={18} height={18}>{ICONE_EQUIPE}</svg></span><div><h3>Equipe</h3><p>Convide funcionários para trabalhar junto com você neste espaço.</p></div></div>
         <form className="settings-form convite-form" onSubmit={convidar}>
           <label>E-mail do funcionário<input type="email" required value={conviteEmail} onChange={(e) => setConviteEmail(e.target.value)} placeholder="funcionario@email.com" /></label>
           <button className="primary" disabled={convidando}>{convidando ? "Enviando…" : "Convidar"}</button>
@@ -590,8 +612,8 @@ function Settings({ userName, userEmail, papel, logoUrl, exibirNomeNaLateral, ex
           {equipeTable}
         </details> : equipeTable}
       </article>}
-      <article className="panel settings-panel"><div className="settings-panel-head"><span aria-hidden="true">◉</span><div><h3>Redefinir senha</h3><p>Confirme a senha atual antes de escolher uma nova senha com pelo menos 8 caracteres.</p></div></div><form className="settings-form" onSubmit={updatePassword}><label className="full">Senha atual<input type="password" autoComplete="current-password" required value={senhaAtual} onChange={(event) => setSenhaAtual(event.target.value)} /></label><label>Nova senha<input type="password" autoComplete="new-password" minLength={8} required value={senha} onChange={(event) => setSenha(event.target.value)} /></label><label>Confirmar nova senha<input type="password" autoComplete="new-password" minLength={8} required value={confirmacao} onChange={(event) => setConfirmacao(event.target.value)} /></label>{message && <p className={message.includes("sucesso") ? "settings-message success" : "settings-message error"} role={message.includes("sucesso") ? "status" : "alert"}>{message}</p>}<button className="primary" disabled={savingPassword}>{savingPassword ? "Atualizando…" : "Atualizar senha"}</button></form></article>
-      <article className="panel settings-panel"><div className="settings-panel-head"><span aria-hidden="true">◌</span><div><h3>Modo daltonismo</h3><p>Usa a paleta Okabe–Ito e indicadores textuais para não depender apenas de vermelho e verde.</p></div></div><div className="choice-group" role="radiogroup" aria-label="Modo daltonismo"><button type="button" data-choice="default" tabIndex={vision === "default" ? 0 : -1} className={vision === "default" ? "selected" : ""} role="radio" aria-checked={vision === "default"} onKeyDown={(event) => navegarRadio(event, ["default", "colorblind"], vision, applyVision)} onClick={() => applyVision("default")}><i className="palette-default" aria-hidden="true" />Padrão</button><button type="button" data-choice="colorblind" tabIndex={vision === "colorblind" ? 0 : -1} className={vision === "colorblind" ? "selected" : ""} role="radio" aria-checked={vision === "colorblind"} onKeyDown={(event) => navegarRadio(event, ["default", "colorblind"], vision, applyVision)} onClick={() => applyVision("colorblind")}><i className="palette-colorblind" aria-hidden="true" />Daltonismo</button></div></article>
+      <article className="panel settings-panel"><div className="settings-panel-head"><span aria-hidden="true"><svg {...ICONE_SVG} width={18} height={18}>{ICONE_SENHA}</svg></span><div><h3>Redefinir senha</h3><p>Confirme a senha atual antes de escolher uma nova senha com pelo menos 8 caracteres.</p></div></div><form className="settings-form" onSubmit={updatePassword}><label className="full">Senha atual<input type="password" autoComplete="current-password" required value={senhaAtual} onChange={(event) => setSenhaAtual(event.target.value)} /></label><label>Nova senha<input type="password" autoComplete="new-password" minLength={8} required value={senha} onChange={(event) => setSenha(event.target.value)} /></label><label>Confirmar nova senha<input type="password" autoComplete="new-password" minLength={8} required value={confirmacao} onChange={(event) => setConfirmacao(event.target.value)} /></label>{message && <p className={message.includes("sucesso") ? "settings-message success" : "settings-message error"} role={message.includes("sucesso") ? "status" : "alert"}>{message}</p>}<button className="primary" disabled={savingPassword}>{savingPassword ? "Atualizando…" : "Atualizar senha"}</button></form></article>
+      <article className="panel settings-panel"><div className="settings-panel-head"><span aria-hidden="true"><svg {...ICONE_SVG} width={18} height={18}>{ICONE_DALTONISMO}</svg></span><div><h3>Modo daltonismo</h3><p>Usa a paleta Okabe–Ito e indicadores textuais para não depender apenas de vermelho e verde.</p></div></div><div className="choice-group" role="radiogroup" aria-label="Modo daltonismo"><button type="button" data-choice="default" tabIndex={vision === "default" ? 0 : -1} className={vision === "default" ? "selected" : ""} role="radio" aria-checked={vision === "default"} onKeyDown={(event) => navegarRadio(event, ["default", "colorblind"], vision, applyVision)} onClick={() => applyVision("default")}><i className="palette-default" aria-hidden="true" />Padrão</button><button type="button" data-choice="colorblind" tabIndex={vision === "colorblind" ? 0 : -1} className={vision === "colorblind" ? "selected" : ""} role="radio" aria-checked={vision === "colorblind"} onKeyDown={(event) => navegarRadio(event, ["default", "colorblind"], vision, applyVision)} onClick={() => applyVision("colorblind")}><i className="palette-colorblind" aria-hidden="true" />Daltonismo</button></div></article>
       <article className="panel settings-panel"><div className="settings-panel-head"><span aria-hidden="true">Aa</span><div><h3>Tamanho da fonte</h3><p>Ajuste a leitura do sistema neste dispositivo.</p></div></div><div className="choice-group font-choices" role="radiogroup" aria-label="Tamanho da fonte">{([ ["small", "Menor"], ["normal", "Padrão"], ["large", "Maior"] ] as const).map(([value, label]) => <button type="button" key={value} data-choice={value} tabIndex={fontSize === value ? 0 : -1} className={fontSize === value ? "selected" : ""} role="radio" aria-checked={fontSize === value} onKeyDown={(event) => navegarRadio(event, ["small", "normal", "large"], fontSize, applyFontSize)} onClick={() => applyFontSize(value)}><i className={`font-${value}`} aria-hidden="true">A</i>{label}</button>)}</div></article>
     </section>
   </>;
@@ -617,10 +639,10 @@ function Overview({ companies, issues, tasks, weekTasks, go }: { companies: Empr
   const pendentes = issues.filter((i) => i.status === "Pendente" && !idsOcultosDuplicidade.has(i.id));
   return <>
     <section className="hero"><div><Badge tone="blue">Carteira em acompanhamento</Badge><h2>Uma visão clara da sua operação.</h2><p>Centralize cadastros, encontre inconsistências e mantenha as entregas do escritório no prazo.</p></div><button className="primary" onClick={() => go("Onboarding")}>Cadastrar empresa <span>→</span></button></section>
-    <section className="metrics"><Card title="Empresas na carteira" value={companies.length} helper={`${active} com situação ativa`} icon="▦" /><Card title="Divergências pendentes" value={pendentes.length} helper="Requerem uma decisão" icon="◇" /><Card title="Vencimentos da semana" value={due} helper="Inclui tarefas em atraso" icon="◷" /></section>
+    <section className="metrics"><Card title="Empresas na carteira" value={companies.length} helper={`${active} com situação ativa`} icon={ICONE_CARTEIRA} /><Card title="Divergências pendentes" value={pendentes.length} helper="Requerem uma decisão" icon={ICONE_DIVERGENCIA} /><Card title="Vencimentos da semana" value={due} helper="Inclui tarefas em atraso" icon={ICONE_VENCIMENTO} /></section>
     <section className="section-head"><div><h2>Atalhos da operação</h2><p>Acesse rapidamente os principais fluxos.</p></div></section>
     <section className="quick-grid">
-      {[ ["Onboarding", "＋", "Inclua empresas com dados pré-preenchidos por CNPJ."], ["Auditoria", "◈", "Revise divergências identificadas na base."], ["Análise", "▥", "Entenda a composição da sua carteira."], ["Calendário", "□", "Acompanhe obrigações e prazos recorrentes."] ].map(([title, icon, text]) => <button className="quick-card" key={title} onClick={() => go(title as View)}><span aria-hidden="true">{icon}</span><strong>{title}</strong><p>{text}</p><em aria-hidden="true">→</em></button>)}
+      {[ ["Onboarding", "Inclua empresas com dados pré-preenchidos por CNPJ."], ["Auditoria", "Revise divergências identificadas na base."], ["Análise", "Entenda a composição da sua carteira."], ["Calendário", "Acompanhe obrigações e prazos recorrentes."] ].map(([title, text]) => <button className="quick-card" key={title} onClick={() => go(title as View)}><span aria-hidden="true"><svg {...ICONE_SVG} width={18} height={18}>{nav.find((n) => n.label === title)!.icon}</svg></span><strong>{title}</strong><p>{text}</p><em aria-hidden="true">→</em></button>)}
     </section>
     <section className="two-columns"><article className="panel"><div className="panel-title"><div><h3>Próximos vencimentos</h3><p>Prioridades dos próximos dias</p></div><button onClick={() => go("Calendário")}>Ver calendário</button></div>{tasks.slice(0, 4).map((t) => <div className="task-line" key={t.id}><time>{formatDate(t.vencimento)}</time><div><strong>{t.titulo}</strong><small>{t.empresa || "Reunião interna"} · {t.responsaveis.join(", ")}</small></div><Badge tone={t.status === "Atrasada" ? "danger" : "blue"}>{t.status}</Badge></div>)}</article><article className="panel"><div className="panel-title"><div><h3>Auditoria em foco</h3><p>Ocorrências pendentes por prioridade</p></div><button onClick={() => go("Auditoria")}>Revisar</button></div>{pendentes.slice(0, 4).map((i) => <div className="task-line" key={i.id}><span className="issue-dot" aria-hidden="true">!</span><div><strong>{i.empresa}</strong><small>{i.tipo}</small></div><Badge tone="warning">Pendente</Badge></div>)}</article></section>
   </>;
