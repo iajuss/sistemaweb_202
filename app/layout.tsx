@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
@@ -15,6 +15,15 @@ const geistMono = Geist_Mono({
 });
 
 const themeBootstrap = `(()=>{try{const root=document.documentElement;const auth=['/login','/signup'].includes(location.pathname);const theme=localStorage.getItem('controle-carteira-theme');const vision=localStorage.getItem('controle-carteira-vision');const font=localStorage.getItem('controle-carteira-font-size');root.dataset.theme=auth?'light':theme==='dark'?'dark':'light';root.dataset.vision=vision==='colorblind'?'colorblind':'default';root.dataset.fontSize=['small','normal','large'].includes(font||'')?font:'normal'}catch(_){}})();`;
+
+// Sem isso, celulares renderizam a página numa largura virtual de desktop
+// (~980px) e encolhem tudo pra caber, o que também tira o efeito dos
+// `@media(max-width:...)` do CSS (eles nunca disparam) e deixa a página
+// dar pinch-zoom livremente em vez de já se ajustar à tela do aparelho.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+};
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
