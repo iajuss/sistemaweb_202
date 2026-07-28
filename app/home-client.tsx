@@ -1049,8 +1049,11 @@ function Analysis({ companies }: { companies: Empresa[] }) {
   const [segmento, setSegmento] = useState<{ titulo: string; empresas: Empresa[] } | null>(null);
   const anoAtual = new Date().getFullYear();
   const filtered = companies.filter((c) => (state === "Todos" || c.estado === state) && (size === "Todos" || c.porte === size) && (situation === "Todos" || c.status === situation) && `${c.razaoSocial} ${c.cnae}`.toLowerCase().includes(search.toLowerCase()));
-  const count = (key: keyof Empresa) => Object.entries(filtered.reduce((a, c) => ({ ...a, [String(c[key])]: (a[String(c[key])] || 0) + 1 }), {} as Record<string, number>)).map(([name, value]) => ({ name, value }));
-  const stateData = count("estado").sort((a, b) => b.value - a.value); const sizeData = count("porte"); const cnaeData = count("cnae").sort((a, b) => b.value - a.value); const statusData = count("status");
+  // Sempre em ordem decrescente: a ordem das fatias, das cores e da legenda sai
+  // daqui, então categorias que aparecem depois (uma situação cadastral nova,
+  // por exemplo) entram na posição certa em vez de irem para o fim da lista.
+  const count = (key: keyof Empresa) => Object.entries(filtered.reduce((a, c) => ({ ...a, [String(c[key])]: (a[String(c[key])] || 0) + 1 }), {} as Record<string, number>)).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  const stateData = count("estado"); const sizeData = count("porte"); const cnaeData = count("cnae"); const statusData = count("status");
   // Lê o ano direto da string "YYYY-MM-DD" — `new Date(c.abertura).getFullYear()`
   // parseia como meia-noite UTC; convertida para o fuso de Brasília (UTC-3),
   // uma abertura em 1º de janeiro virava 31/12 do ano anterior às 21h, e
@@ -1085,7 +1088,7 @@ function Analysis({ companies }: { companies: Empresa[] }) {
       <ChartCard title="Principais CNAEs" hint="Clique para ver empresas"><CnaeRanking data={cnaeData} onSelect={(nome) => abrirSegmento("cnae", nome)} /></ChartCard>
       <ChartCard title="Situação cadastral" hint="Clique para detalhar"><PieVisual data={statusData} onSelect={(nome) => abrirSegmento("status", nome)} /></ChartCard>
       <ChartCard title="Tempo de abertura" hint="Clique para detalhar"><BarVisual data={ages} onSelect={(nome) => abrirSegmento("idade", nome)} /></ChartCard>
-      <article className="chart-card insight"><span>✦</span><h3>Leitura rápida</h3><p><strong>{filtered.filter((c) => c.status === "Ativa").length} empresas</strong> estão ativas. O perfil mais comum é <strong>{sizeData.sort((a,b) => b.value-a.value)[0]?.name}</strong>.</p><small>Dados atualizados a partir dos cadastros da carteira.</small></article>
+      <article className="chart-card insight"><span>✦</span><h3>Leitura rápida</h3><p><strong>{filtered.filter((c) => c.status === "Ativa").length} empresas</strong> estão ativas. O perfil mais comum é <strong>{sizeData[0]?.name}</strong>.</p><small>Dados atualizados a partir dos cadastros da carteira.</small></article>
     </section></Suspense>}
     {segmento && <SegmentoModal titulo={segmento.titulo} empresas={segmento.empresas} onClose={() => setSegmento(null)} />}
   </>;
