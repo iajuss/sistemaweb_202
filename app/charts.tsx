@@ -10,12 +10,16 @@
 import { useEffect, useState } from "react";
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
-const coresClaras = ["#2d6478", "#5d89a5", "#92b0bf", "#c8d9db", "#d9af72"];
+// Uma cor por categoria possível — "Situação cadastral" tem 6 valores
+// ("Não informada" + as 5 situações), e o `i % cores.length` das fatias
+// reciclaria a primeira cor (azul escuro) ao lado da segunda (azul médio) se a
+// lista tivesse só 5. Ao acrescentar categorias, acrescente cores aqui também.
+const coresClaras = ["#2d6478", "#5d89a5", "#92b0bf", "#c8d9db", "#d9af72", "#8c5a4a"];
 // O tema escuro preserva a identidade azul da aplicação. A lista abaixo é
 // compartilhada pelo gráfico e pela legenda, evitando qualquer divergência.
-const coresEscuras = ["#2d6478", "#5d89a5", "#92b0bf", "#c8d9db", "#d9af72"];
-// Okabe-Ito sem dois tons de azul: azul, laranja, verde, magenta e amarelo.
-const coresDaltonismo = ["#0072b2", "#e69f00", "#009e73", "#cc79a7", "#f0e442"];
+const coresEscuras = ["#2d6478", "#5d89a5", "#92b0bf", "#c8d9db", "#d9af72", "#8c5a4a"];
+// Okabe-Ito sem dois tons de azul: azul, laranja, verde, magenta, amarelo e vermelhão.
+const coresDaltonismo = ["#0072b2", "#e69f00", "#009e73", "#cc79a7", "#f0e442", "#d55e00"];
 
 function coresDoGrafico() {
   if (typeof document === "undefined") return coresClaras;
